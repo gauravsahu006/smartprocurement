@@ -14,6 +14,11 @@ import {
   Users,
   WalletCards,
   X,
+  HelpCircle,
+  ChevronDown,
+  UserRound,
+  Building2,
+  MessageCircle,
 } from "lucide-react";
 
 import farmerCentre from "../../assets/images/farmer-centre.png";
@@ -109,7 +114,7 @@ function Home() {
             </a>
 
             <Link
-              to="/find-centres"
+              to="/centre/register"
               className="py-6 text-sm font-medium text-slate-700 transition hover:text-green-700"
             >
               Centres
@@ -256,7 +261,7 @@ function Home() {
 
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <Link
-                    to="/find-centres"
+                    to="/centre/register"
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-green-700 px-5 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-green-800"
                   >
                     <Search className="h-4 w-4" />
@@ -345,7 +350,7 @@ function Home() {
                     </p>
 
                     {index !== steps.length - 1 && (
-                      <ArrowRight className="absolute -right-4 top-1/2 hidden h-7 w-7 -translate-y-1/2 text-green-600 lg:block" />
+                      <ArrowRight className="absolute -right-6 top-1/2 hidden h-7 w-7 -translate-y-1/2 text-green-600 lg:block" />
                     )}
                   </div>
                 );
@@ -433,7 +438,194 @@ function Home() {
             </div>
           </div>
         </section>
+
+        {/* Help & Support */}
+        <section id="help" className="bg-white">
+          <div className="mx-auto max-w-7xl px-5 pb-5 sm:px-8 lg:px-10">
+            <div className="mx-auto max-w-2xl text-center">
+              <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700">
+                <HelpCircle className="h-4 w-4" />
+                Help & Support
+              </span>
+
+              <h2 className="mt-4 text-3xl font-extrabold text-blue-950 sm:text-4xl">
+                How Can We Help You?
+              </h2>
+
+              <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
+                Choose your role to quickly understand how Smart Procurement
+                can help you.
+              </p>
+            </div>
+
+            {/* Role Cards */}
+            <div className="mt-10 grid gap-5 md:grid-cols-3">
+              {/* Farmer */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:-translate-y-1 hover:shadow-md">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-100 text-green-700">
+                  <UserRound className="h-6 w-6" />
+                </div>
+
+                <h3 className="mt-5 text-lg font-extrabold text-blue-950">
+                  I am a Farmer
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Get help with registration, finding procurement centres,
+                  booking slots, queue tracking and payments.
+                </p>
+
+                <ul className="mt-5 space-y-2.5 text-xs text-slate-600">
+                  <li>✓ Farmer registration & login</li>
+                  <li>✓ Find nearby procurement centres</li>
+                  <li>✓ Book a procurement slot</li>
+                  <li>✓ Track live queue</li>
+                  <li>✓ Check procurement & payment status</li>
+                </ul>
+
+                <Link
+                  to="/login"
+                  className="mt-6 inline-flex items-center text-sm font-bold text-green-700 hover:text-green-800"
+                >
+                  Farmer Login
+                  <ArrowRight className="ml-1.5 h-4 w-4" />
+                </Link>
+              </div>
+
+              {/* Centre Officer */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:-translate-y-1 hover:shadow-md">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Building2 className="h-6 w-6" />
+                </div>
+
+                <h3 className="mt-5 text-lg font-extrabold text-blue-950">
+                  I am a Centre Officer
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Manage farmer bookings, live queues, procurement,
+                  payments and centre information.
+                </p>
+
+                <ul className="mt-5 space-y-2.5 text-xs text-slate-600">
+                  <li>✓ Centre registration & login</li>
+                  <li>✓ Manage farmer bookings</li>
+                  <li>✓ Manage live queue</li>
+                  <li>✓ Update procurement</li>
+                  <li>✓ Manage farmer payments</li>
+                </ul>
+
+                <Link
+                  to="/centre/login"
+                  className="mt-6 inline-flex items-center text-sm font-bold text-blue-700 hover:text-blue-800"
+                >
+                  Centre Login
+                  <ArrowRight className="ml-1.5 h-4 w-4" />
+                </Link>
+              </div>
+
+              {/* Admin */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition hover:-translate-y-1 hover:shadow-md">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+
+                <h3 className="mt-5 text-lg font-extrabold text-blue-950">
+                  I am an Admin
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Monitor the complete procurement system, farmers,
+                  centres, bookings, payments and reports.
+                </p>
+
+                <ul className="mt-5 space-y-2.5 text-xs text-slate-600">
+                  <li>✓ Manage farmers</li>
+                  <li>✓ Manage procurement centres</li>
+                  <li>✓ Monitor bookings</li>
+                  <li>✓ Monitor procurement & payments</li>
+                  <li>✓ View reports & analytics</li>
+                </ul>
+
+                <Link
+                  to="/admin/login"
+                  className="mt-6 inline-flex items-center text-sm font-bold text-purple-700 hover:text-purple-800"
+                >
+                  Admin Login
+                  <ArrowRight className="ml-1.5 h-4 w-4" />
+                </Link>
+              </div>
+            </div>
+
+            {/* FAQ */}
+            <div className="mx-auto mt-14 max-w-4xl">
+              <div className="text-center">
+                <h3 className="text-2xl font-extrabold text-blue-950">
+                  Frequently Asked Questions
+                </h3>
+
+                <p className="mt-2 text-sm text-slate-500">
+                  Quick answers to common questions.
+                </p>
+              </div>
+
+              <div className="mt-7 space-y-3">
+                <details className="group rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-blue-950">
+                    How do I register as a farmer?
+                    <ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" />
+                  </summary>
+
+                  <p className="mt-3 text-xs leading-5 text-slate-600">
+                    Click on Farmer Login and choose the registration option.
+                    Enter your required details and create your farmer account.
+                  </p>
+                </details>
+
+                <details className="group rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-blue-950">
+                    How can I find a procurement centre?
+                    <ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" />
+                  </summary>
+
+                  <p className="mt-3 text-xs leading-5 text-slate-600">
+                    Login as a farmer and open Find Centres from your farmer
+                    dashboard. You can then check centre details, queue and
+                    estimated waiting time.
+                  </p>
+                </details>
+
+                <details className="group rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-blue-950">
+                    How do I book a procurement slot?
+                    <ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" />
+                  </summary>
+
+                  <p className="mt-3 text-xs leading-5 text-slate-600">
+                    After selecting a procurement centre, choose an available
+                    date and time slot and confirm your booking.
+                  </p>
+                </details>
+
+                <details className="group rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-blue-950">
+                    How does a Centre Officer access the system?
+                    <ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" />
+                  </summary>
+
+                  <p className="mt-3 text-xs leading-5 text-slate-600">
+                    Centre Officers can register their centre first and then
+                    use Centre Officer Login to access the centre dashboard.
+                  </p>
+                </details>
+              </div>
+            </div>
+
+          </div>
+        </section>
       </main>
+
+
 
       {/* Footer */}
       <footer
