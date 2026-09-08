@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   CalendarDays,
   Eye,
@@ -7,6 +7,7 @@ import {
   Leaf,
   LocateFixed,
   LockKeyhole,
+  Mail,
   Phone,
   ShieldCheck,
   User,
@@ -15,22 +16,23 @@ import {
 } from "lucide-react";
 
 import farmerField from "../../assets/images/farmer-field.png";
+import { supabase } from "../../lib/supabase";
 
 function Register() {
-  const navigate = useNavigate();
-
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [form, setForm] = useState({
     fullName: "",
+    email: "",
     mobile: "",
-    aadhaar: "",
     password: "",
     confirmPassword: "",
   });
 
   const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -42,23 +44,28 @@ function Register() {
       newValue = value.replace(/\D/g, "").slice(0, 10);
     }
 
-    // Aadhaar: only numbers, maximum 12 digits
-    if (name === "aadhaar") {
-      newValue = value.replace(/\D/g, "").slice(0, 12);
-    }
-
-    setForm({
-      ...form,
+    setForm((prev) => ({
+      ...prev,
       [name]: newValue,
-    });
+    }));
 
     // Remove field error while typing
     if (errors[name]) {
-      setErrors({
-        ...errors,
+      setErrors((prev) => ({
+        ...prev,
         [name]: "",
-      });
+      }));
     }
+
+    // Remove submit error while typing
+    if (errors.submit) {
+      setErrors((prev) => ({
+        ...prev,
+        submit: "",
+      }));
+    }
+
+    setSuccessMessage("");
   };
 
   const validateForm = () => {
@@ -71,18 +78,20 @@ function Register() {
       newErrors.fullName = "Name must be at least 3 characters.";
     }
 
+    // Email
+    if (!form.email.trim()) {
+      newErrors.email = "Email is required.";
+    } else if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
+    ) {
+      newErrors.email = "Enter a valid email address.";
+    }
+
     // Mobile
     if (!form.mobile) {
       newErrors.mobile = "Mobile number is required.";
     } else if (!/^[6-9]\d{9}$/.test(form.mobile)) {
       newErrors.mobile = "Enter a valid 10-digit mobile number.";
-    }
-
-    // Aadhaar
-    if (!form.aadhaar) {
-      newErrors.aadhaar = "Aadhaar number is required.";
-    } else if (!/^\d{12}$/.test(form.aadhaar)) {
-      newErrors.aadhaar = "Aadhaar number must be 12 digits.";
     }
 
     // Password
@@ -104,8 +113,11 @@ function Register() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+
+    setErrors({});
+    setSuccessMessage("");
 
     const isValid = validateForm();
 
@@ -113,8 +125,144 @@ function Register() {
       return;
     }
 
-    // Backend authentication/register later
-    navigate("/login");
+    setLoading(true);
+
+    try {
+      /*
+       * STEP 1
+       * Create user in Supabase Authentication
+       */
+      const { data: authData, error: authError } =
+        await supabase.auth.signUp({
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+
+        options: {
+            data: {
+              full_name: form.fullName.trim(),
+              phone: form.mobile,
+              role: "farmer",
+            },
+          },
+         });
+
+         
+        
+
+      if (authError) {
+        throw authError;
+      }
+
+     if (!authData?.user) {
+  throw new Error(
+    "Registration failed. User was not created."
+  );
+}
+
+if (!authData.session) {
+  throw new Error(
+    "Registration completed, but no active session was created."
+  );
+}
+
+const userId = authData.user.id;
+
+      /*
+       * STEP 2
+       * Create farmer profile
+       *
+       * profiles table:
+       * id
+       * full_name
+       * phone
+       * role
+       */
+      const profilePayload = {
+        id: userId,
+        full_name: form.fullName.trim(),
+        phone: form.mobile,
+        role: "farmer",
+      };
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .upsert(profilePayload, {
+          onConflict: "id",
+        });
+
+      if (profileError) {
+        console.error(
+          "Profile creation error:",
+          profileError
+        );
+
+        throw new Error(
+          `Account created, but farmer profile could not be saved: ${profileError.message}`
+        );
+      }
+
+      /*
+       * STEP 3
+       * Registration successful
+       */
+      setSuccessMessage(
+        "Registration successful! You can now login with your email and password."
+      );
+
+      /*
+       * Clear form
+       */
+      setForm({
+        fullName: "",
+        email: "",
+        mobile: "",
+        password: "",
+        confirmPassword: "",
+      });
+
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+    } catch (error) {
+      console.error("Registration error:", error);
+
+      let message =
+        error?.message ||
+        "Registration failed. Please try again.";
+
+      /*
+       * Common Supabase errors
+       */
+      const lowerMessage = message.toLowerCase();
+
+      if (
+        lowerMessage.includes("user already registered") ||
+        lowerMessage.includes("already registered")
+      ) {
+        message =
+          "This email is already registered. Please login.";
+      }
+
+      if (
+        lowerMessage.includes("invalid login credentials")
+      ) {
+        message =
+          "Invalid registration details. Please check your information.";
+      }
+
+      if (
+        lowerMessage.includes("duplicate") &&
+        lowerMessage.includes("phone")
+      ) {
+        message =
+          "This mobile number is already registered.";
+      }
+
+      setErrors({
+        submit: message,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -122,7 +270,10 @@ function Register() {
       {/* Header */}
       <header className="h-[72px] border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-full max-w-[1440px] items-center justify-between px-5 sm:px-8">
-          <Link to="/" className="flex items-center gap-2.5">
+          <Link
+            to="/"
+            className="flex items-center gap-2.5"
+          >
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-green-50">
               <Leaf className="h-7 w-7 text-green-700" />
             </div>
@@ -170,7 +321,10 @@ function Register() {
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form
+                onSubmit={handleSubmit}
+                className="space-y-4"
+              >
                 {/* Full Name */}
                 <div>
                   <label className="mb-1.5 block text-xs font-semibold text-slate-700">
@@ -192,6 +346,7 @@ function Register() {
                       value={form.fullName}
                       onChange={handleChange}
                       placeholder="Enter your full name"
+                      autoComplete="name"
                       className={`h-11 w-full rounded-lg border bg-white pl-11 pr-4 text-sm outline-none transition ${
                         errors.fullName
                           ? "border-red-500 focus:ring-2 focus:ring-red-100"
@@ -203,6 +358,43 @@ function Register() {
                   {errors.fullName && (
                     <p className="mt-1 text-xs font-medium text-red-600">
                       {errors.fullName}
+                    </p>
+                  )}
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                    Email Address
+                  </label>
+
+                  <div className="relative">
+                    <Mail
+                      className={`absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 ${
+                        errors.email
+                          ? "text-red-500"
+                          : "text-slate-400"
+                      }`}
+                    />
+
+                    <input
+                      type="email"
+                      name="email"
+                      value={form.email}
+                      onChange={handleChange}
+                      placeholder="Enter your email address"
+                      autoComplete="email"
+                      className={`h-11 w-full rounded-lg border bg-white pl-11 pr-4 text-sm outline-none transition ${
+                        errors.email
+                          ? "border-red-500 focus:ring-2 focus:ring-red-100"
+                          : "border-slate-200 focus:border-green-600 focus:ring-2 focus:ring-green-100"
+                      }`}
+                    />
+                  </div>
+
+                  {errors.email && (
+                    <p className="mt-1 text-xs font-medium text-red-600">
+                      {errors.email}
                     </p>
                   )}
                 </div>
@@ -230,6 +422,7 @@ function Register() {
                       placeholder="Enter 10-digit mobile number"
                       inputMode="numeric"
                       maxLength={10}
+                      autoComplete="tel"
                       className={`h-11 w-full rounded-lg border bg-white pl-11 pr-4 text-sm outline-none transition ${
                         errors.mobile
                           ? "border-red-500 focus:ring-2 focus:ring-red-100"
@@ -241,34 +434,6 @@ function Register() {
                   {errors.mobile && (
                     <p className="mt-1 text-xs font-medium text-red-600">
                       {errors.mobile}
-                    </p>
-                  )}
-                </div>
-
-                {/* Aadhaar */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                    Aadhaar Number
-                  </label>
-
-                  <input
-                    type="text"
-                    name="aadhaar"
-                    value={form.aadhaar}
-                    onChange={handleChange}
-                    placeholder="Enter 12-digit Aadhaar number"
-                    inputMode="numeric"
-                    maxLength={12}
-                    className={`h-11 w-full rounded-lg border bg-white px-4 text-sm outline-none transition ${
-                      errors.aadhaar
-                        ? "border-red-500 focus:ring-2 focus:ring-red-100"
-                        : "border-slate-200 focus:border-green-600 focus:ring-2 focus:ring-green-100"
-                    }`}
-                  />
-
-                  {errors.aadhaar && (
-                    <p className="mt-1 text-xs font-medium text-red-600">
-                      {errors.aadhaar}
                     </p>
                   )}
                 </div>
@@ -289,11 +454,14 @@ function Register() {
                     />
 
                     <input
-                      type={showPassword ? "text" : "password"}
+                      type={
+                        showPassword ? "text" : "password"
+                      }
                       name="password"
                       value={form.password}
                       onChange={handleChange}
                       placeholder="Create password"
+                      autoComplete="new-password"
                       className={`h-11 w-full rounded-lg border bg-white pl-11 pr-11 text-sm outline-none transition ${
                         errors.password
                           ? "border-red-500 focus:ring-2 focus:ring-red-100"
@@ -303,8 +471,10 @@ function Register() {
 
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+                      onClick={() =>
+                        setShowPassword(!showPassword)
+                      }
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     >
                       {showPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -337,11 +507,16 @@ function Register() {
                     />
 
                     <input
-                      type={showConfirmPassword ? "text" : "password"}
+                      type={
+                        showConfirmPassword
+                          ? "text"
+                          : "password"
+                      }
                       name="confirmPassword"
                       value={form.confirmPassword}
                       onChange={handleChange}
                       placeholder="Confirm your password"
+                      autoComplete="new-password"
                       className={`h-11 w-full rounded-lg border bg-white pl-11 pr-11 text-sm outline-none transition ${
                         errors.confirmPassword
                           ? "border-red-500 focus:ring-2 focus:ring-red-100"
@@ -352,9 +527,11 @@ function Register() {
                     <button
                       type="button"
                       onClick={() =>
-                        setShowConfirmPassword(!showConfirmPassword)
+                        setShowConfirmPassword(
+                          !showConfirmPassword
+                        )
                       }
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     >
                       {showConfirmPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -371,12 +548,37 @@ function Register() {
                   )}
                 </div>
 
+                {/* Submit Error */}
+                {errors.submit && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                    <p className="text-xs font-medium text-red-700">
+                      {errors.submit}
+                    </p>
+                  </div>
+                )}
+
+                {/* Success */}
+                {successMessage && (
+                  <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+                    <p className="text-xs font-medium text-green-700">
+                      {successMessage}
+                    </p>
+                  </div>
+                )}
+
                 {/* Submit */}
                 <button
                   type="submit"
-                  className="mt-2 h-11 w-full rounded-lg bg-green-700 text-sm font-bold text-white transition hover:bg-green-800"
+                  disabled={loading}
+                  className={`mt-2 h-11 w-full rounded-lg text-sm font-bold text-white transition ${
+                    loading
+                      ? "cursor-not-allowed bg-green-500"
+                      : "bg-green-700 hover:bg-green-800"
+                  }`}
                 >
-                  Create Account
+                  {loading
+                    ? "Creating Account..."
+                    : "Create Account"}
                 </button>
               </form>
 
@@ -406,7 +608,9 @@ function Register() {
             <div className="w-full">
               <h2 className="text-center text-xl font-extrabold leading-7 text-green-800">
                 Everything you need
-                <span className="block">in one place</span>
+                <span className="block">
+                  in one place
+                </span>
               </h2>
 
               <div className="mt-7 space-y-3">
@@ -467,12 +671,15 @@ function Register() {
           <section className="px-5 py-8 lg:hidden">
             <h2 className="text-center text-xl font-extrabold text-green-800">
               Everything you need
-              <span className="block">in one place</span>
+              <span className="block">
+                in one place
+              </span>
             </h2>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <div className="flex items-center gap-3 rounded-xl border p-4">
                 <LocateFixed className="h-5 w-5 shrink-0 text-green-700" />
+
                 <span className="text-xs font-semibold">
                   Find nearby procurement centres
                 </span>
@@ -480,6 +687,7 @@ function Register() {
 
               <div className="flex items-center gap-3 rounded-xl border p-4">
                 <CalendarDays className="h-5 w-5 shrink-0 text-blue-700" />
+
                 <span className="text-xs font-semibold">
                   Book convenient time slots
                 </span>
@@ -487,6 +695,7 @@ function Register() {
 
               <div className="flex items-center gap-3 rounded-xl border p-4">
                 <WalletCards className="h-5 w-5 shrink-0 text-orange-600" />
+
                 <span className="text-xs font-semibold">
                   Track payment status
                 </span>

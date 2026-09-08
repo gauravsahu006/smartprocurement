@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -16,57 +17,213 @@ import centre2 from "../../assets/images/procurement-centre-2.png";
 import centre3 from "../../assets/images/procurement-centre-3.png";
 import centre4 from "../../assets/images/procurement-centre-4.png";
 
-const centreData = {
-  1: {
-    name: "ABC Procurement Centre",
-    image: centre1,
-    address: "XYZ Village, Ranchi, Jharkhand 834001",
-    distance: "5.2 km",
-    queue: "12 Farmers",
-    waitTime: "35 min",
-    capacity: "70%",
-    contact: "9876543210",
-    incharge: "Suresh Kumar",
-  },
-  2: {
-    name: "Krishi Seva Kendra",
-    image: centre2,
-    address: "Main Road, Ranchi, Jharkhand 834001",
-    distance: "2.1 km",
-    queue: "8 Farmers",
-    waitTime: "60 min",
-    capacity: "70%",
-    contact: "9876543211",
-    incharge: "Ramesh Kumar",
-  },
-  3: {
-    name: "Green Field Centre",
-    image: centre3,
-    address: "Green Field Road, Ranchi, Jharkhand 834001",
-    distance: "7.8 km",
-    queue: "8 Farmers",
-    waitTime: "20 min",
-    capacity: "60%",
-    contact: "9876543212",
-    incharge: "Amit Kumar",
-  },
-  4: {
-    name: "Shakti Kendra",
-    image: centre4,
-    address: "Shakti Nagar, Ranchi, Jharkhand 834001",
-    distance: "9.5 km",
-    queue: "15 Farmers",
-    waitTime: "45 min",
-    capacity: "66%",
-    contact: "9876543213",
-    incharge: "Vijay Kumar",
-  },
+import { supabase } from "../../lib/supabase";
+
+const centreImages = {
+  1: centre1,
+  2: centre2,
+  3: centre3,
+  4: centre4,
 };
 
 function CentreDetails() {
   const { id } = useParams();
 
-  const centre = centreData[id] || centreData[1];
+  const [centre, setCentre] = useState(null);
+  const [acceptedCrops, setAcceptedCrops] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (id) {
+      fetchCentreDetails();
+    }
+  }, [id]);
+
+  const fetchCentreDetails = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      // -----------------------------------------
+      // 1. Fetch centre
+      // -----------------------------------------
+      const {
+        data: centreData,
+        error: centreError,
+      } = await supabase
+        .from("centres")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (centreError) {
+        throw centreError;
+      }
+
+      if (!centreData) {
+        setError("Procurement centre not found.");
+        setCentre(null);
+        return;
+      }
+
+      setCentre(centreData);
+
+      // -----------------------------------------
+      // 2. Fetch centre-crop mapping
+      // -----------------------------------------
+      const {
+        data: centreCropData,
+        error: centreCropError,
+      } = await supabase
+        .from("centre_crops")
+        .select("*")
+        .eq("centre_id", id);
+
+      if (centreCropError) {
+        throw centreCropError;
+      }
+
+      // -----------------------------------------
+      // 3. Fetch crops
+      // -----------------------------------------
+      if (centreCropData && centreCropData.length > 0) {
+        const cropIds = centreCropData.map(
+          (item) => item.crop_id
+        );
+
+        const {
+          data: cropData,
+          error: cropError,
+        } = await supabase
+          .from("crops")
+          .select("*")
+          .in("id", cropIds)
+          .order("id", { ascending: true });
+
+        if (cropError) {
+          throw cropError;
+        }
+
+        setAcceptedCrops(cropData || []);
+      } else {
+        setAcceptedCrops([]);
+      }
+    } catch (err) {
+      console.error("Failed to load centre details:", err);
+
+      setError(
+        err?.message ||
+          "Unable to load procurement centre details."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -----------------------------------------
+  // Helpers
+  // -----------------------------------------
+
+  const getCentreImage = () => {
+    return centreImages[Number(id)] || centre1;
+  };
+
+  const getAddress = () => {
+    if (!centre) return "Location details unavailable";
+
+    return (
+      centre.address ||
+      centre.location ||
+      [
+        centre.village,
+        centre.city,
+        centre.district,
+        centre.state,
+        centre.pincode,
+      ]
+        .filter(Boolean)
+        .join(", ") ||
+      "Location details unavailable"
+    );
+  };
+
+  const getContact = () => {
+    if (!centre) return "Not available";
+
+    return (
+      centre.contact ||
+      centre.phone ||
+      centre.contact_number ||
+      centre.mobile ||
+      "Not available"
+    );
+  };
+
+  const getIncharge = () => {
+    if (!centre) return "Not available";
+
+    return (
+      centre.incharge ||
+      centre.incharge_name ||
+      centre.manager_name ||
+      centre.contact_person ||
+      "Not available"
+    );
+  };
+
+  // -----------------------------------------
+  // Loading
+  // -----------------------------------------
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-[1150px] px-4 py-5 sm:px-6 lg:px-7">
+        <Link
+          to="/centres"
+          className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-600 hover:text-green-700"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Centres
+        </Link>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.05fr_1fr]">
+          <div className="h-[400px] animate-pulse rounded-lg border border-slate-200 bg-white" />
+
+          <div className="h-[400px] animate-pulse rounded-lg border border-slate-200 bg-white" />
+        </div>
+      </div>
+    );
+  }
+
+  // -----------------------------------------
+  // Error / Not Found
+  // -----------------------------------------
+  if (!centre) {
+    return (
+      <div className="mx-auto max-w-[1150px] px-4 py-5 sm:px-6 lg:px-7">
+        <Link
+          to="/centres"
+          className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-600 hover:text-green-700"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Centres
+        </Link>
+
+        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-5 py-10 text-center">
+          <MapPin className="mx-auto h-8 w-8 text-red-400" />
+
+          <h1 className="mt-3 text-sm font-extrabold text-red-800">
+            Centre not found
+          </h1>
+
+          <p className="mt-1 text-[10px] text-red-600">
+            {error || "This procurement centre does not exist."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1150px] px-4 py-5 sm:px-6 lg:px-7">
@@ -79,6 +236,13 @@ function CentreDetails() {
         Back to Centres
       </Link>
 
+      {/* Error */}
+      {error && (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[10px] font-semibold text-red-700">
+          {error}
+        </div>
+      )}
+
       {/* Main Grid */}
       <section className="mt-4 grid gap-4 lg:grid-cols-[1.05fr_1fr]">
         {/* Left */}
@@ -86,7 +250,7 @@ function CentreDetails() {
           {/* Centre Image */}
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <img
-              src={centre.image}
+              src={getCentreImage()}
               alt={centre.name}
               className="h-[210px] w-full object-cover sm:h-[250px]"
             />
@@ -96,21 +260,26 @@ function CentreDetails() {
           <div className="mt-2 grid grid-cols-3 gap-2">
             <StatCard
               icon={MapPin}
-              label="Distance"
-              value={centre.distance}
-              suffix="away"
+              label="Location"
+              value={
+                centre.city ||
+                centre.district ||
+                centre.state ||
+                "Available"
+              }
             />
 
             <StatCard
               icon={UserRound}
               label="Current Queue"
-              value={centre.queue}
+              value="Live"
+              suffix="after booking"
             />
 
             <StatCard
               icon={Clock3}
-              label="Est. Waiting Time"
-              value={centre.waitTime}
+              label="Slot Status"
+              value="Available"
             />
           </div>
 
@@ -126,22 +295,27 @@ function CentreDetails() {
                   </p>
 
                   <p className="text-sm font-extrabold text-blue-950">
-                    {centre.capacity}
+                    Check available slots
                   </p>
                 </div>
               </div>
 
               <span className="text-[9px] font-bold text-green-700">
-                Utilized
+                Live
               </span>
             </div>
 
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-green-600"
-                style={{ width: centre.capacity }}
+                style={{ width: "40%" }}
               />
             </div>
+
+            <p className="mt-1.5 text-[8px] text-slate-400">
+              Capacity will be determined from available time
+              slots.
+            </p>
           </div>
 
           {/* About */}
@@ -151,10 +325,9 @@ function CentreDetails() {
             </h2>
 
             <p className="mt-2 text-[9px] leading-5 text-slate-600">
-              {centre.name} is one of the efficient procurement
-              centres in the region. Farmers can bring their crops
-              here for weighing, quality checking and transparent
-              procurement.
+              {centre.name} is a procurement centre where
+              farmers can bring their crops for weighing, quality
+              checking and transparent procurement.
             </p>
           </div>
         </div>
@@ -177,7 +350,7 @@ function CentreDetails() {
             <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-700" />
 
             <p className="text-[9px] leading-4 text-slate-600">
-              {centre.address}
+              {getAddress()}
             </p>
           </div>
 
@@ -192,13 +365,13 @@ function CentreDetails() {
             <DetailRow
               icon={Phone}
               label="Contact Number"
-              value={centre.contact}
+              value={getContact()}
             />
 
             <DetailRow
               icon={UserRound}
               label="Centre Incharge"
-              value={centre.incharge}
+              value={getIncharge()}
             />
           </div>
 
@@ -213,14 +386,20 @@ function CentreDetails() {
             </div>
 
             <div className="mt-2 flex flex-wrap gap-2">
-              {["Wheat", "Rice", "Maize", "Pulses"].map((crop) => (
-                <span
-                  key={crop}
-                  className="rounded-md bg-green-50 px-2.5 py-1.5 text-[8px] font-bold text-green-700"
-                >
-                  {crop}
+              {acceptedCrops.length === 0 ? (
+                <span className="rounded-md bg-slate-50 px-2.5 py-1.5 text-[8px] font-bold text-slate-500">
+                  No crop information available
                 </span>
-              ))}
+              ) : (
+                acceptedCrops.map((crop) => (
+                  <span
+                    key={crop.id}
+                    className="rounded-md bg-green-50 px-2.5 py-1.5 text-[8px] font-bold text-green-700"
+                  >
+                    {crop.name}
+                  </span>
+                ))
+              )}
             </div>
           </div>
 
@@ -244,7 +423,7 @@ function CentreDetails() {
 
           {/* Choose */}
           <Link
-            to={`/recommendations?centre=${id || 1}`}
+            to={`/recommendations?centre=${centre.id}`}
             className="mt-6 flex w-full items-center justify-center gap-2 rounded-md bg-green-700 py-2.5 text-[10px] font-bold text-white shadow-sm transition hover:bg-green-800"
           >
             <CheckCircle2 className="h-4 w-4" />
@@ -263,11 +442,15 @@ function CentreDetails() {
           {/* Simple Map Background */}
           <div className="absolute inset-0 opacity-60">
             <div className="absolute left-[10%] top-[20%] h-px w-[80%] rotate-12 bg-white" />
+
             <div className="absolute left-[5%] top-[50%] h-px w-[90%] -rotate-6 bg-white" />
+
             <div className="absolute left-[30%] top-0 h-full w-px rotate-[18deg] bg-white" />
+
             <div className="absolute left-[65%] top-0 h-full w-px -rotate-[12deg] bg-white" />
 
             <div className="absolute left-[15%] top-[15%] h-16 w-24 rounded-full bg-green-100" />
+
             <div className="absolute right-[10%] bottom-[10%] h-20 w-28 rounded-full bg-blue-100" />
           </div>
 
@@ -284,7 +467,7 @@ function CentreDetails() {
             </p>
 
             <p className="mt-0.5 text-[7px] text-slate-500">
-              {centre.distance} from your location
+              {getAddress()}
             </p>
           </div>
         </div>
@@ -306,6 +489,7 @@ function StatCard({ icon: Icon, label, value, suffix }) {
 
           <p className="mt-0.5 text-[10px] font-extrabold text-blue-950">
             {value}
+
             {suffix && (
               <span className="ml-1 text-[7px] font-medium text-slate-400">
                 {suffix}

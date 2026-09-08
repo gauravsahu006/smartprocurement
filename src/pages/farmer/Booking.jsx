@@ -1,419 +1,953 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-    ArrowLeft,
-    CalendarDays,
-    CheckCircle2,
-    Clock3,
-    MapPin,
-    Users,
+  ArrowLeft,
+  CalendarDays,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  MapPin,
+  Users,
+  Wheat,
 } from "lucide-react";
 
-const centres = {
-    1: {
-        name: "ABC Procurement Centre",
-        address: "Main Road, Ranchi",
-        distance: "5.2 km",
-        queue: 12,
-        waitTime: "35 min",
-        capacity: 70,
-    },
-    2: {
-        name: "Krishi Seva Kendra",
-        address: "Kanke Road, Ranchi",
-        distance: "2.1 km",
-        queue: 8,
-        waitTime: "60 min",
-        capacity: 70,
-    },
-    3: {
-        name: "Green Field Centre",
-        address: "Tupudana, Ranchi",
-        distance: "7.8 km",
-        queue: 8,
-        waitTime: "20 min",
-        capacity: 60,
-    },
-    4: {
-        name: "Shakti Kendra",
-        address: "Harmu Road, Ranchi",
-        distance: "9.5 km",
-        queue: 15,
-        waitTime: "45 min",
-        capacity: 66,
-    },
-};
-
-const slots = [
-    {
-        time: "09:00 AM - 10:00 AM",
-        available: 12,
-    },
-    {
-        time: "10:00 AM - 11:00 AM",
-        available: 8,
-    },
-    {
-        time: "11:00 AM - 12:00 PM",
-        available: 15,
-    },
-    {
-        time: "12:00 PM - 01:00 PM",
-        available: 5,
-    },
-    {
-        time: "02:00 PM - 03:00 PM",
-        available: 10,
-    },
-    {
-        time: "03:00 PM - 04:00 PM",
-        available: 7,
-    },
-];
+import { supabase } from "../../lib/supabase";
 
 function getDate(daysFromToday) {
-    const date = new Date();
+  const date = new Date();
 
-    date.setDate(date.getDate() + daysFromToday);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + daysFromToday);
 
-    return date;
+  return date;
 }
 
 function formatDate(date) {
-    return date.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-    });
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+  });
 }
 
 function getDay(date) {
-    return date.toLocaleDateString("en-IN", {
-        weekday: "short",
-    });
+  return date.toLocaleDateString("en-IN", {
+    weekday: "short",
+  });
+}
+
+function formatTime(time) {
+  if (!time) return "";
+
+  const [hours, minutes] = time.split(":");
+  const date = new Date();
+
+  date.setHours(Number(hours), Number(minutes), 0, 0);
+
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatSlot(startTime, endTime) {
+  return `${formatTime(startTime)} - ${formatTime(endTime)}`;
 }
 
 export default function Booking() {
-    const navigate = useNavigate();
-    const location = useLocation();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-    const params = new URLSearchParams(location.search);
-    const centreId = params.get("centre") || "1";
+  const params = new URLSearchParams(location.search);
+  const centreId = Number(params.get("centre")) || 1;
 
-    const centre = centres[centreId] || centres[1];
+  const [centre, setCentre] = useState(null);
+  const [crops, setCrops] = useState([]);
+  const [slots, setSlots] = useState([]);
 
-    const dates = useMemo(() => {
-        return Array.from({ length: 7 }, (_, index) => getDate(index));
-    }, []);
+  const [selectedCrop, setSelectedCrop] = useState("");
+  const [selectedSlotId, setSelectedSlotId] = useState("");
 
-    const [selectedDate, setSelectedDate] = useState(
-        dates[0].toISOString().split("T")[0]
-    );
+  const [loadingCentre, setLoadingCentre] = useState(true);
+  const [loadingCrops, setLoadingCrops] = useState(true);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
 
-    const [selectedSlot, setSelectedSlot] = useState("");
+  const [error, setError] = useState("");
 
-    const [error, setError] = useState("");
+  const dates = useMemo(() => {
+    return Array.from({ length: 7 }, (_, index) => getDate(index));
+  }, []);
 
-    const handleConfirm = () => {
-        if (!selectedDate) {
-            setError("Please select a date.");
-            return;
+  const [selectedDate, setSelectedDate] = useState(
+    dates[0].toISOString().split("T")[0]
+  );
+
+  // --------------------------------------------------
+  // FETCH CENTRE
+  // --------------------------------------------------
+
+  useEffect(() => {
+    async function fetchCentre() {
+      setLoadingCentre(true);
+      setError("");
+
+      const { data, error: centreError } = await supabase
+        .from("centres")
+        .select("*")
+        .eq("id", centreId)
+        .single();
+
+      if (centreError) {
+        console.error("Centre fetch error:", centreError);
+        setError("Unable to load procurement centre.");
+        setCentre(null);
+      } else {
+        console.log("Selected centre:", data);
+        setCentre(data);
+      }
+
+      setLoadingCentre(false);
+    }
+
+    fetchCentre();
+  }, [centreId]);
+
+  // --------------------------------------------------
+  // FETCH CROPS
+  // --------------------------------------------------
+
+  useEffect(() => {
+    async function fetchCrops() {
+      setLoadingCrops(true);
+
+      /*
+       * Fetch crops accepted by this centre.
+       *
+       * centre_crops contains:
+       * centre_id
+       * crop_id
+       *
+       * crops contains:
+       * id
+       * name
+       */
+
+      const { data: centreCrops, error: centreCropsError } = await supabase
+        .from("centre_crops")
+        .select("crop_id")
+        .eq("centre_id", centreId);
+
+      if (centreCropsError) {
+        console.error("Centre crops error:", centreCropsError);
+        setCrops([]);
+        setLoadingCrops(false);
+        return;
+      }
+
+      const cropIds = (centreCrops || []).map((item) => item.crop_id);
+
+      if (cropIds.length === 0) {
+        setCrops([]);
+        setLoadingCrops(false);
+        return;
+      }
+
+      const { data: cropData, error: cropError } = await supabase
+        .from("crops")
+        .select("*")
+        .in("id", cropIds)
+        .order("name", { ascending: true });
+
+      if (cropError) {
+        console.error("Crops fetch error:", cropError);
+        setCrops([]);
+      } else {
+        console.log("Available crops:", cropData);
+        setCrops(cropData || []);
+
+        // Automatically select first crop
+        if (cropData?.length > 0) {
+          setSelectedCrop(String(cropData[0].id));
         }
+      }
 
-        if (!selectedSlot) {
-            setError("Please select a time slot.");
-            return;
-        }
+      setLoadingCrops(false);
+    }
 
-        setError("");
+    fetchCrops();
+  }, [centreId]);
 
-        const selectedSlotData = slots.find(
-            (slot) => slot.time === selectedSlot
-        );
+  // --------------------------------------------------
+  // FETCH TIME SLOTS
+  // --------------------------------------------------
 
-        navigate("/booking-confirmation", {
-            state: {
-                centreId,
-                date: selectedDate,
-                slot: selectedSlot,
-                available: selectedSlotData?.available || 0,
+  useEffect(() => {
+    async function fetchSlots() {
+      setLoadingSlots(true);
+      setError("");
 
-                crop: "Wheat",
-                quantity: "48.5 Quintal",
-                token: "124",
-                queuePosition: "12",
-                waitTime: centre.waitTime,
-            },
-        });
-    };
+      setSelectedSlotId("");
 
+      const { data, error: slotsError } = await supabase
+        .from("time_slots")
+        .select("*")
+        .eq("centre_id", centreId)
+        .eq("slot_date", selectedDate)
+        .order("start_time", { ascending: true });
+
+      if (slotsError) {
+        console.error("Slots fetch error:", slotsError);
+
+        setSlots([]);
+        setError("Unable to load available time slots.");
+      } else {
+        console.log("Available slots:", data);
+
+        setSlots(data || []);
+      }
+
+      setLoadingSlots(false);
+    }
+
+    fetchSlots();
+  }, [centreId, selectedDate]);
+
+  // --------------------------------------------------
+  // CONFIRM BOOKING
+  // --------------------------------------------------
+
+  const handleConfirm = async () => {
+    setError("");
+
+    if (!selectedDate) {
+      setError("Please select a date.");
+      return;
+    }
+
+    if (!selectedCrop) {
+      setError("Please select a crop.");
+      return;
+    }
+
+    if (!selectedSlotId) {
+      setError("Please select a time slot.");
+      return;
+    }
+
+    if (!centre) {
+      setError("Procurement centre information is unavailable.");
+      return;
+    }
+
+    if (bookingLoading) {
+      return;
+    }
+
+    setBookingLoading(true);
+
+    try {
+      // ----------------------------------------------
+      // GET CURRENT FARMER
+      // ----------------------------------------------
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
+        setError("Please login as a farmer before booking.");
+        navigate("/farmer-login");
+        return;
+      }
+
+      console.log("Creating booking for farmer:", user.id);
+
+      // ----------------------------------------------
+      // GET SELECTED SLOT
+      // ----------------------------------------------
+
+      const selectedSlot = slots.find(
+        (slot) => String(slot.id) === String(selectedSlotId)
+      );
+
+      if (!selectedSlot) {
+        throw new Error("Selected time slot could not be found.");
+      }
+
+      // ----------------------------------------------
+      // FINAL RPC DATA
+      //
+      // IMPORTANT:
+      // Backend function signature is:
+      //
+      // create_booking(
+      //   p_centre_id bigint,
+      //   p_crop_id bigint,
+      //   p_notes text,
+      //   p_slot_id bigint
+      // )
+      //
+      // Do NOT send p_booking_date.
+      // Date comes from the selected time slot.
+      // ----------------------------------------------
+
+      const bookingPayload = {
+        p_centre_id: centreId,
+        p_crop_id: Number(selectedCrop),
+        p_slot_id: Number(selectedSlotId),
+        p_notes: null,
+      };
+
+      console.log("Creating booking with:", bookingPayload);
+
+      const { data, error: bookingError } = await supabase.rpc(
+        "create_booking",
+        bookingPayload
+      );
+
+      if (bookingError) {
+        console.error("Create booking error:", bookingError);
+        throw new Error(bookingError.message);
+      }
+
+      console.log("Booking created successfully:", data);
+
+      // ----------------------------------------------
+      // RPC RESPONSE
+      // ----------------------------------------------
+
+      let bookingData = data;
+
+      /*
+       * Depending on the PostgreSQL function return type,
+       * Supabase may return:
+       *
+       * object
+       * OR
+       * array with one object
+       */
+
+      if (Array.isArray(data)) {
+        bookingData = data[0];
+      }
+
+      console.log("Final booking data:", bookingData);
+
+      // ----------------------------------------------
+      // NAVIGATE TO CONFIRMATION
+      // ----------------------------------------------
+
+      navigate("/booking-confirmation", {
+        state: {
+          booking: bookingData,
+
+          centreId: centreId,
+
+          centre: centre,
+
+          date: selectedDate,
+
+          slotId: selectedSlot.id,
+
+          slot: formatSlot(
+            selectedSlot.start_time,
+            selectedSlot.end_time
+          ),
+
+          crop:
+            crops.find(
+              (crop) => String(crop.id) === String(selectedCrop)
+            ) || null,
+
+          cropId: Number(selectedCrop),
+
+          available:
+            selectedSlot.capacity -
+            (selectedSlot.booked_count || 0),
+
+          token:
+            bookingData?.token_number ??
+            bookingData?.token ??
+            null,
+
+          queuePosition:
+            bookingData?.queue_position ??
+            bookingData?.position ??
+            null,
+
+          waitTime: null,
+        },
+      });
+    } catch (bookingException) {
+      console.error("Booking exception:", bookingException);
+
+      setError(
+        bookingException?.message ||
+          "Something went wrong while creating the booking."
+      );
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // LOADING CENTRE
+  // --------------------------------------------------
+
+  if (loadingCentre) {
     return (
-        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-            {/* Header */}
-            <div className="mb-6">
-                <Link
-                    to={`/recommendations?centre=${centreId}`}
-                    className="mb-3 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-green-700"
-                >
-                    <ArrowLeft size={17} />
-                    Back to Recommendations
-                </Link>
-
-                <h1 className="text-2xl font-bold text-[#10233f] sm:text-3xl">
-                    Book Procurement Slot
-                </h1>
-
-                <p className="mt-1 text-sm text-slate-500">
-                    Select a convenient date and time for your procurement visit.
-                </p>
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-[330px_1fr]">
-                {/* Centre Summary */}
-                <section className="h-fit rounded-xl border border-slate-200 bg-white p-5">
-                    <div className="mb-5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
-                            Selected Centre
-                        </p>
-
-                        <h2 className="mt-1 text-xl font-bold text-[#10233f]">
-                            {centre.name}
-                        </h2>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div className="flex gap-3">
-                            <div className="rounded-lg bg-green-50 p-2 text-green-700">
-                                <MapPin size={18} />
-                            </div>
-
-                            <div>
-                                <p className="text-xs text-slate-500">Location</p>
-                                <p className="text-sm font-medium text-slate-700">
-                                    {centre.address}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-3">
-                            <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
-                                <Clock3 size={18} />
-                            </div>
-
-                            <div>
-                                <p className="text-xs text-slate-500">Estimated Wait</p>
-                                <p className="text-sm font-medium text-slate-700">
-                                    {centre.waitTime}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-3">
-                            <div className="rounded-lg bg-orange-50 p-2 text-orange-600">
-                                <Users size={18} />
-                            </div>
-
-                            <div>
-                                <p className="text-xs text-slate-500">Current Queue</p>
-                                <p className="text-sm font-medium text-slate-700">
-                                    {centre.queue} farmers
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-6 border-t border-slate-100 pt-5">
-                        <div className="mb-2 flex items-center justify-between">
-                            <span className="text-sm font-medium text-slate-600">
-                                Capacity
-                            </span>
-
-                            <span className="text-sm font-semibold text-green-700">
-                                {centre.capacity}%
-                            </span>
-                        </div>
-
-                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                                className="h-full rounded-full bg-green-600"
-                                style={{ width: `${centre.capacity}%` }}
-                            />
-                        </div>
-
-                        <p className="mt-2 text-xs text-slate-500">
-                            Good availability for booking.
-                        </p>
-                    </div>
-                </section>
-
-                {/* Booking Section */}
-                <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-                    {/* Date */}
-                    <div>
-                        <div className="mb-4 flex items-center gap-2">
-                            <CalendarDays className="text-green-700" size={20} />
-
-                            <h2 className="text-lg font-bold text-[#10233f]">
-                                Select Date
-                            </h2>
-                        </div>
-
-                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                            {dates.map((date) => {
-                                const value = date.toISOString().split("T")[0];
-                                const isSelected = selectedDate === value;
-
-                                return (
-                                    <button
-                                        key={value}
-                                        type="button"
-                                        onClick={() => {
-                                            setSelectedDate(value);
-                                            setError("");
-                                        }}
-                                        className={`rounded-lg border px-2 py-3 text-center transition ${isSelected
-                                            ? "border-green-600 bg-green-600 text-white"
-                                            : "border-slate-200 bg-white text-slate-700 hover:border-green-400 hover:bg-green-50"
-                                            }`}
-                                    >
-                                        <span className="block text-xs font-medium">
-                                            {getDay(date)}
-                                        </span>
-
-                                        <span className="mt-1 block text-sm font-bold">
-                                            {formatDate(date)}
-                                        </span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Slots */}
-                    <div className="mt-8">
-                        <div className="mb-4 flex items-center justify-between">
-                            <div>
-                                <h2 className="text-lg font-bold text-[#10233f]">
-                                    Available Time Slots
-                                </h2>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                    Choose one available slot for your visit.
-                                </p>
-                            </div>
-
-                            <span className="hidden rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 sm:block">
-                                {slots.length} slots available
-                            </span>
-                        </div>
-
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            {slots.map((slot) => {
-                                const isSelected = selectedSlot === slot.time;
-                                const isLow = slot.available <= 5;
-
-                                return (
-                                    <button
-                                        key={slot.time}
-                                        type="button"
-                                        onClick={() => {
-                                            setSelectedSlot(slot.time);
-                                            setError("");
-                                        }}
-                                        className={`flex items-center justify-between rounded-lg border p-4 text-left transition ${isSelected
-                                            ? "border-green-600 bg-green-50 ring-1 ring-green-600"
-                                            : "border-slate-200 bg-white hover:border-green-400 hover:bg-slate-50"
-                                            }`}
-                                    >
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-800">
-                                                {slot.time}
-                                            </p>
-
-                                            <p
-                                                className={`mt-1 text-xs font-medium ${isLow ? "text-orange-600" : "text-green-600"
-                                                    }`}
-                                            >
-                                                {slot.available} slots available
-                                            </p>
-                                        </div>
-
-                                        {isSelected && (
-                                            <CheckCircle2
-                                                size={21}
-                                                className="shrink-0 text-green-600"
-                                            />
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Error */}
-                    {error && (
-                        <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                            {error}
-                        </div>
-                    )}
-
-                    {/* Summary */}
-                    <div className="mt-8 rounded-xl bg-slate-50 p-4">
-                        <h3 className="text-sm font-bold text-[#10233f]">
-                            Booking Summary
-                        </h3>
-
-                        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-                            <div>
-                                <p className="text-xs text-slate-500">Centre</p>
-                                <p className="font-medium text-slate-700">
-                                    {centre.name}
-                                </p>
-                            </div>
-
-                            <div>
-                                <p className="text-xs text-slate-500">Date</p>
-                                <p className="font-medium text-slate-700">
-                                    {selectedDate
-                                        ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString(
-                                            "en-IN",
-                                            {
-                                                day: "2-digit",
-                                                month: "short",
-                                                year: "numeric",
-                                            }
-                                        )
-                                        : "Not selected"}
-                                </p>
-                            </div>
-
-                            <div>
-                                <p className="text-xs text-slate-500">Time</p>
-                                <p className="font-medium text-slate-700">
-                                    {selectedSlot || "Not selected"}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Confirm */}
-                    <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                        <Link
-                            to={`/recommendations?centre=${centreId}`}
-                            className="rounded-lg border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                        >
-                            Cancel
-                        </Link>
-
-                        <button
-                            type="button"
-                            onClick={handleConfirm}
-                            className="rounded-lg bg-green-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-green-800"
-                        >
-                            Confirm Slot
-                        </button>
-                    </div>
-                </section>
-            </div>
-        </main>
+      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+          <p className="text-sm font-medium text-slate-500">
+            Loading procurement centre...
+          </p>
+        </div>
+      </main>
     );
+  }
+
+  // --------------------------------------------------
+  // CENTRE NOT FOUND
+  // --------------------------------------------------
+
+  if (!centre) {
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-sm font-semibold text-red-600">
+            Procurement centre not found.
+          </p>
+
+          <Link
+            to="/centres"
+            className="mt-4 inline-flex rounded-lg bg-green-700 px-5 py-2.5 text-sm font-semibold text-white"
+          >
+            Back to Centres
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // --------------------------------------------------
+  // CALCULATED VALUES
+  // --------------------------------------------------
+
+  const selectedSlot = slots.find(
+    (slot) => String(slot.id) === String(selectedSlotId)
+  );
+
+  const selectedCropData = crops.find(
+    (crop) => String(crop.id) === String(selectedCrop)
+  );
+
+  const availableSlots = slots.filter((slot) => {
+    const capacity = Number(slot.capacity || 0);
+    const bookedCount = Number(slot.booked_count || 0);
+
+    return capacity - bookedCount > 0;
+  });
+
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
+
+  return (
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      {/* Header */}
+
+      <div className="mb-6">
+        <Link
+          to={`/recommendations?centre=${centreId}`}
+          className="mb-3 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-green-700"
+        >
+          <ArrowLeft size={17} />
+
+          Back to Recommendations
+        </Link>
+
+        <h1 className="text-2xl font-bold text-[#10233f] sm:text-3xl">
+          Book Procurement Slot
+        </h1>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Select a convenient date, crop and time for your procurement visit.
+        </p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[330px_1fr]">
+        {/* ==========================================
+            CENTRE SUMMARY
+        =========================================== */}
+
+        <section className="h-fit rounded-xl border border-slate-200 bg-white p-5">
+          <div className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
+              Selected Centre
+            </p>
+
+            <h2 className="mt-1 text-xl font-bold text-[#10233f]">
+              {centre.name}
+            </h2>
+          </div>
+
+          <div className="space-y-4">
+            {/* Location */}
+
+            <div className="flex gap-3">
+              <div className="rounded-lg bg-green-50 p-2 text-green-700">
+                <MapPin size={18} />
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Location
+                </p>
+
+                <p className="text-sm font-medium text-slate-700">
+                  {centre.address || "Location not available"}
+                </p>
+              </div>
+            </div>
+
+            {/* District */}
+
+            {centre.district && (
+              <div className="flex gap-3">
+                <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
+                  <MapPin size={18} />
+                </div>
+
+                <div>
+                  <p className="text-xs text-slate-500">
+                    District
+                  </p>
+
+                  <p className="text-sm font-medium text-slate-700">
+                    {centre.district}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Queue */}
+
+            <div className="flex gap-3">
+              <div className="rounded-lg bg-orange-50 p-2 text-orange-600">
+                <Users size={18} />
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Current Queue
+                </p>
+
+                <p className="text-sm font-medium text-slate-700">
+                  Live queue will be updated after booking
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Crop */}
+
+          <div className="mt-6 border-t border-slate-100 pt-5">
+            <div className="flex items-center gap-2">
+              <Wheat
+                size={18}
+                className="text-green-700"
+              />
+
+              <span className="text-sm font-semibold text-slate-700">
+                Selected Crop
+              </span>
+            </div>
+
+            <p className="mt-2 text-sm font-bold text-[#10233f]">
+              {selectedCropData?.name || "Select crop"}
+            </p>
+          </div>
+        </section>
+
+        {/* ==========================================
+            BOOKING SECTION
+        =========================================== */}
+
+        <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+          {/* ========================================
+              CROP
+          ========================================= */}
+
+          <div>
+            <div className="mb-4 flex items-center gap-2">
+              <Wheat
+                className="text-green-700"
+                size={20}
+              />
+
+              <h2 className="text-lg font-bold text-[#10233f]">
+                Select Crop
+              </h2>
+            </div>
+
+            {loadingCrops ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">
+                  Loading available crops...
+                </p>
+              </div>
+            ) : crops.length === 0 ? (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
+                <p className="text-sm font-medium text-orange-700">
+                  No crops are currently accepted at this centre.
+                </p>
+              </div>
+            ) : (
+              <div className="relative">
+                <Wheat
+                  size={17}
+                  className="pointer-events-none absolute left-3 top-3 text-green-700"
+                />
+
+                <select
+                  value={selectedCrop}
+                  onChange={(event) => {
+                    setSelectedCrop(event.target.value);
+                    setError("");
+                  }}
+                  className="h-11 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-10 pr-10 text-sm font-medium text-slate-700 outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                >
+                  <option value="">
+                    Select a crop
+                  </option>
+
+                  {crops.map((crop) => (
+                    <option
+                      key={crop.id}
+                      value={crop.id}
+                    >
+                      {crop.name}
+                    </option>
+                  ))}
+                </select>
+
+                <ChevronDown
+                  size={17}
+                  className="pointer-events-none absolute right-3 top-3 text-slate-400"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ========================================
+              DATE
+          ========================================= */}
+
+          <div className="mt-8">
+            <div className="mb-4 flex items-center gap-2">
+              <CalendarDays
+                className="text-green-700"
+                size={20}
+              />
+
+              <h2 className="text-lg font-bold text-[#10233f]">
+                Select Date
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+              {dates.map((date) => {
+                const value = date
+                  .toISOString()
+                  .split("T")[0];
+
+                const isSelected =
+                  selectedDate === value;
+
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(value);
+                      setError("");
+                    }}
+                    className={`rounded-lg border px-2 py-3 text-center transition ${
+                      isSelected
+                        ? "border-green-600 bg-green-600 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-green-400 hover:bg-green-50"
+                    }`}
+                  >
+                    <span className="block text-xs font-medium">
+                      {getDay(date)}
+                    </span>
+
+                    <span className="mt-1 block text-sm font-bold">
+                      {formatDate(date)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ========================================
+              TIME SLOTS
+          ========================================= */}
+
+          <div className="mt-8">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-[#10233f]">
+                  Available Time Slots
+                </h2>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Choose one available slot for your visit.
+                </p>
+              </div>
+
+              {!loadingSlots && (
+                <span className="hidden rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 sm:block">
+                  {availableSlots.length} slots available
+                </span>
+              )}
+            </div>
+
+            {loadingSlots ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 text-center">
+                <p className="text-sm text-slate-500">
+                  Loading available slots...
+                </p>
+              </div>
+            ) : availableSlots.length === 0 ? (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-5">
+                <div className="flex items-center gap-3">
+                  <Clock3
+                    size={20}
+                    className="text-orange-600"
+                  />
+
+                  <div>
+                    <p className="text-sm font-semibold text-orange-700">
+                      No slots available
+                    </p>
+
+                    <p className="mt-1 text-xs text-orange-600">
+                      Please select another date.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {availableSlots.map((slot) => {
+                  const isSelected =
+                    String(selectedSlotId) ===
+                    String(slot.id);
+
+                  const capacity = Number(
+                    slot.capacity || 0
+                  );
+
+                  const bookedCount = Number(
+                    slot.booked_count || 0
+                  );
+
+                  const available =
+                    capacity - bookedCount;
+
+                  const isLow = available <= 5;
+
+                  return (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSlotId(
+                          String(slot.id)
+                        );
+
+                        setError("");
+                      }}
+                      className={`flex items-center justify-between rounded-lg border p-4 text-left transition ${
+                        isSelected
+                          ? "border-green-600 bg-green-50 ring-1 ring-green-600"
+                          : "border-slate-200 bg-white hover:border-green-400 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {formatSlot(
+                            slot.start_time,
+                            slot.end_time
+                          )}
+                        </p>
+
+                        <p
+                          className={`mt-1 text-xs font-medium ${
+                            isLow
+                              ? "text-orange-600"
+                              : "text-green-600"
+                          }`}
+                        >
+                          {available} slots available
+                        </p>
+                      </div>
+
+                      {isSelected && (
+                        <CheckCircle2
+                          size={21}
+                          className="shrink-0 text-green-600"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ========================================
+              ERROR
+          ========================================= */}
+
+          {error && (
+            <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+              {error}
+            </div>
+          )}
+
+          {/* ========================================
+              SUMMARY
+          ========================================= */}
+
+          <div className="mt-8 rounded-xl bg-slate-50 p-4">
+            <h3 className="text-sm font-bold text-[#10233f]">
+              Booking Summary
+            </h3>
+
+            <div className="mt-3 grid gap-4 text-sm sm:grid-cols-3">
+              {/* Centre */}
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Centre
+                </p>
+
+                <p className="mt-1 font-medium text-slate-700">
+                  {centre.name}
+                </p>
+              </div>
+
+              {/* Crop */}
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Crop
+                </p>
+
+                <p className="mt-1 font-medium text-slate-700">
+                  {selectedCropData?.name ||
+                    "Not selected"}
+                </p>
+              </div>
+
+              {/* Date */}
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Date
+                </p>
+
+                <p className="mt-1 font-medium text-slate-700">
+                  {selectedDate
+                    ? new Date(
+                        `${selectedDate}T00:00:00`
+                      ).toLocaleDateString(
+                        "en-IN",
+                        {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        }
+                      )
+                    : "Not selected"}
+                </p>
+              </div>
+
+              {/* Time */}
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Time
+                </p>
+
+                <p className="mt-1 font-medium text-slate-700">
+                  {selectedSlot
+                    ? formatSlot(
+                        selectedSlot.start_time,
+                        selectedSlot.end_time
+                      )
+                    : "Not selected"}
+                </p>
+              </div>
+
+              {/* Available */}
+
+              <div>
+                <p className="text-xs text-slate-500">
+                  Available Slots
+                </p>
+
+                <p className="mt-1 font-medium text-green-700">
+                  {selectedSlot
+                    ? Number(selectedSlot.capacity || 0) -
+                      Number(
+                        selectedSlot.booked_count || 0
+                      )
+                    : "—"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================
+              CONFIRM
+          ========================================= */}
+
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Link
+              to={`/recommendations?centre=${centreId}`}
+              className="rounded-lg border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </Link>
+
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={
+                bookingLoading ||
+                loadingCrops ||
+                loadingSlots ||
+                crops.length === 0 ||
+                availableSlots.length === 0
+              }
+              className="rounded-lg bg-green-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bookingLoading
+                ? "Creating Booking..."
+                : "Confirm Slot"}
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
 }

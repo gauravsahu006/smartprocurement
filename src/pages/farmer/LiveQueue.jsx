@@ -1,4 +1,7 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
+
 import {
   ArrowLeft,
   Check,
@@ -9,55 +12,240 @@ import {
   Users,
 } from "lucide-react";
 
-const queueData = [
-  {
-    token: "#114",
-    status: "Completed",
-    completed: true,
-  },
-  {
-    token: "#115",
-    status: "Completed",
-    completed: true,
-  },
-  {
-    token: "#116",
-    status: "Completed",
-    completed: true,
-  },
-  {
-    token: "#117",
-    status: "Completed",
-    completed: true,
-  },
-  {
-    token: "#118",
-    status: "In Progress",
-    current: true,
-  },
-  {
-    token: "#119",
-    status: "Waiting",
-  },
-  {
-    token: "#120",
-    status: "Waiting",
-  },
-  {
-    token: "#121",
-    status: "Waiting",
-  },
-  {
-    token: "#122",
-    status: "Waiting",
-  },
-];
+
+
 
 export default function LiveQueue() {
-  const currentToken = 118;
-  const yourPosition = 12;
-  const estimatedWait = 35;
-  const totalQueue = 26;
+   const [booking, setBooking] = useState(null);
+  const [queue, setQueue] = useState(null);
+  const [queueEntries, setQueueEntries] = useState([]);
+  const [centre, setCentre] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const [estimatedWait, setEstimatedWait] = useState(null);
+
+    useEffect(() => {
+    const fetchLiveQueue = async () => {
+      try {
+        setLoading(true);
+        setErrorMessage("");
+
+        // 1. Logged-in farmer
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError) {
+          throw userError;
+        }
+
+        if (!user) {
+          setErrorMessage("Please login first.");
+          return;
+        }
+
+        // 2. Find active booking
+        const { data: bookings, error: bookingError } = await supabase
+          .from("bookings")
+          .select("*")
+          .eq("farmer_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (bookingError) {
+          throw bookingError;
+        }
+
+        const statusPriority = {
+          processing: 3,
+          called: 2,
+          confirmed: 1,
+        };
+
+        const activeBooking = bookings
+          ?.filter((item) =>
+            ["confirmed", "called", "processing"].includes(item.status)
+          )
+          .sort(
+            (a, b) =>
+              (statusPriority[b.status] || 0) -
+              (statusPriority[a.status] || 0)
+          )[0];
+
+        if (!activeBooking) {
+          setErrorMessage("You don't have an active booking.");
+          return;
+        }
+
+        console.log("Live Queue booking:", activeBooking);
+
+        setBooking(activeBooking);
+
+        // 3. Get centre
+        const { data: centreData, error: centreError } = await supabase
+          .from("centres")
+          .select("*")
+          .eq("id", activeBooking.centre_id)
+          .single();
+
+        if (centreError) {
+          throw centreError;
+        }
+
+        console.log("Live Queue centre:", centreData);
+
+        setCentre(centreData);
+
+        // 4. Get farmer's queue entry
+        const { data: displayQueueData, error: queueError } = await supabase
+          .from("queue_entries")
+          .select("*")
+          .eq("booking_id", activeBooking.id)
+          .single();
+
+        if (queueError) {
+          throw queueError;
+        }
+
+        console.log("Live Queue entry:", displayQueueData);
+
+        setQueue(displayQueueData);
+
+        // 5. Get all active queue entries at this centre
+        const { data: allQueue, error: allQueueError } = await supabase
+          .from("queue_entries")
+          .select("*")
+          .eq("centre_id", activeBooking.centre_id)
+          .in("status", ["waiting", "called", "processing"])
+          .order("queue_position", { ascending: true });
+
+        if (allQueueError) {
+          throw allQueueError;
+        }
+
+        console.log("All active queue entries:", allQueue);
+
+        setQueueEntries(allQueue || []);
+
+      } catch (error) {
+        console.error("Live Queue error:", error);
+        setErrorMessage(error.message || "Unable to load live queue.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLiveQueue();
+  }, []);
+
+  useEffect(() => {
+  if (!booking?.id || !booking?.centre_id) {
+    return;
+  }
+
+  console.log("Starting Realtime subscription...");
+
+  const channel = supabase
+    .channel(`live-queue-${booking.id}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "queue_entries",
+        filter: `centre_id=eq.${booking.centre_id}`,
+      },
+      async (payload) => {
+        console.log("Queue Realtime Update:", payload);
+
+        // Refresh own queue entry
+        const { data: ownQueue, error: ownQueueError } =
+          await supabase
+            .from("queue_entries")
+            .select("*")
+            .eq("booking_id", booking.id)
+            .single();
+
+        if (ownQueueError) {
+          console.error(
+            "Realtime own queue fetch error:",
+            ownQueueError
+          );
+        } else {
+          setQueue(ownQueue);
+        }
+
+        // Refresh all active queue entries
+        const { data: activeQueue, error: activeQueueError } =
+          await supabase
+            .from("queue_entries")
+            .select("*")
+            .eq("centre_id", booking.centre_id)
+            .in("status", [
+              "waiting",
+              "called",
+              "processing",
+            ])
+            .order("queue_position", {
+              ascending: true,
+            });
+
+        if (activeQueueError) {
+          console.error(
+            "Realtime active queue fetch error:",
+            activeQueueError
+          );
+        } else {
+          console.log(
+            "Updated active queue:",
+            activeQueue
+          );
+
+          setQueueEntries(activeQueue || []);
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log("Realtime status:", status);
+    });
+
+  return () => {
+    console.log("Removing Realtime subscription...");
+
+    supabase.removeChannel(channel);
+  };
+}, [booking?.id, booking?.centre_id]);
+
+    const currentServing = queueEntries.find(
+    (item) => item.status === "processing"
+  );
+
+  const currentToken = currentServing?.token_number || null;
+
+  const yourPosition = queue?.queue_position || null;
+
+  const totalQueue = queueEntries.length;
+
+  const aheadOfYou = queue
+    ? queueEntries.filter(
+        (item) =>
+          item.queue_position < queue.queue_position
+      ).length
+    : 0;
+
+  const displayQueueData = queueEntries.map((item) => ({
+    token: `#${item.token_number}`,
+    status:
+      item.status === "processing"
+        ? "In Progress"
+        : item.status === "called"
+        ? "Called"
+        : "Waiting",
+    completed: false,
+    current: item.id === currentServing?.id,
+  }));
 
   return (
     <main className="min-h-full bg-[#f8faf9] px-4 py-6 sm:px-6 lg:px-8">
@@ -95,47 +283,64 @@ export default function LiveQueue() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-base font-bold text-[#10233f] sm:text-lg">
-                ABC Procurement Centre
-              </h2>
+  {loading ? "Loading..." : centre?.name || "No centre"}
+</h2>
 
               <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
                 <MapPin
                   size={14}
                   className="text-green-700"
                 />
-                XYZ Village, Ranchi, Jharkhand
+               {centre
+  ? `${centre.address}, ${centre.district}, ${centre.state}`
+  : "Centre information unavailable"}
               </div>
             </div>
 
             <div className="w-fit rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700">
-              Token #124
+              {loading
+  ? "Loading..."
+  : booking?.token_number
+  ? `Token #${booking.token_number}`
+  : "No token"}
             </div>
           </div>
 
           {/* Queue Stats */}
           <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 sm:grid-cols-4">
-            <QueueStat
-              label="Currently Serving"
-              value="#118"
-            />
+           <QueueStat
+      label="Currently Serving"
+     value={
+         loading
+      ? "..."
+      : currentToken
+      ? `${currentToken}`
+      : "—"}
+         />
 
             <QueueStat
-              label="Your Position"
-              value="#12"
-              valueClass="text-green-700"
-              suffix="in the queue"
-            />
+  label="Your Position"
+  value={
+    loading
+      ? "..."
+      : yourPosition
+      ? `#${yourPosition}`
+      : "—"
+  }
+  valueClass="text-green-700"
+  suffix="in the queue"
+/>
 
             <QueueStat
-              label="Estimated Wait Time"
-              value="35 min"
-            />
+  label="Estimated Wait Time"
+  value="Calculating..."
+/>
 
             <QueueStat
-              label="Total in Queue"
-              value="26"
-              suffix="Farmers"
-            />
+  label="Total in Queue"
+  value={loading ? "..." : totalQueue}
+  suffix="Farmers"
+/>
           </div>
         </section>
 
@@ -159,7 +364,7 @@ export default function LiveQueue() {
                 <div className="absolute left-0 right-0 top-3.5 h-px bg-slate-300" />
 
                 <div className="relative flex justify-between">
-                  {queueData.map((item) => (
+                  {displayQueueData.map((item) => (
                     <QueueToken
                       key={item.token}
                       token={item.token}
@@ -175,7 +380,7 @@ export default function LiveQueue() {
 
           {/* Mobile Progress */}
           <div className="space-y-3 md:hidden">
-            {queueData.map((item) => (
+            {displayQueueData.map((item) => (
               <div
                 key={item.token}
                 className={`flex items-center justify-between rounded-lg border px-3 py-3 ${
@@ -243,12 +448,17 @@ export default function LiveQueue() {
                   </h2>
 
                   <p className="mt-2 text-sm font-medium text-[#10233f]">
-                    Token #118 is being served at Counter 2.
+                   {currentToken
+  ? `Token #${currentToken} is currently being served.`
+  : "No farmer is currently being served."}
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Please wait for your turn. You will be notified
-                    when your token is called.
+                    {queue?.status === "processing"
+  ? "Your token is currently being processed."
+  : queue?.status === "called"
+  ? "Your token has been called. Please proceed to the counter."
+  : "Please wait for your turn. You will be notified when your token is called."}
                   </p>
                 </div>
               </div>
@@ -261,13 +471,19 @@ export default function LiveQueue() {
                       className="text-blue-600"
                     />
 
-                    <span className="text-xs font-medium text-slate-500">
-                      Estimated Wait
-                    </span>
+                    <span>
+  {estimatedWait !== null
+    ? `${estimatedWait} minutes`
+    : "Calculating..."}
+</span>
                   </div>
 
                   <p className="mt-1 text-sm font-bold text-[#10233f]">
-                    {estimatedWait} minutes
+                   <span>
+  {estimatedWait !== null
+    ? `${estimatedWait} minutes`
+    : "Calculating..."}
+</span>
                   </p>
                 </div>
 
@@ -284,7 +500,7 @@ export default function LiveQueue() {
                   </div>
 
                   <p className="mt-1 text-sm font-bold text-[#10233f]">
-                    {yourPosition - 1} farmers
+                   {aheadOfYou} farmers
                   </p>
                 </div>
               </div>
@@ -300,16 +516,32 @@ export default function LiveQueue() {
         {/* Bottom Information */}
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <InfoCard
-            title="Currently Serving"
-            value={`Token #${currentToken}`}
-            text="Counter 2 is currently processing this token."
-          />
+  title="Currently Serving"
+  value={
+    currentToken
+      ? `Token #${currentToken}`
+      : "No active token"
+  }
+  text={
+    currentToken
+      ? "This token is currently being processed."
+      : "No farmer is currently being processed."
+  }
+/>
 
-          <InfoCard
-            title="Your Token"
-            value="Token #124"
-            text="You will receive a notification when your turn is near."
-          />
+         <InfoCard
+  title="Your Token"
+  value={
+    booking?.token_number
+      ? `Token #${booking.token_number}`
+      : "No token"
+  }
+  text={
+    queue?.status === "processing"
+      ? "Your token is currently being processed."
+      : "You will receive a notification when your turn is near."
+  }
+/>
         </div>
       </div>
     </main>

@@ -1,5 +1,6 @@
 import { Routes, Route } from "react-router-dom";
-
+import { useEffect } from "react";
+import { supabase } from "./lib/supabase";
 // Public
 import Home from "./pages/public/Home";
 import Register from "./pages/public/Register";
@@ -47,6 +48,32 @@ import AdminReports from "./pages/admin/Reports";
 import AdminProfile from "./pages/admin/Profile";
 
 function App() {
+
+//   useEffect(() => {
+//     const checkSession = async () => {
+//         const { data, error } = await supabase.auth.getSession();
+
+//         console.log("Current session:", data.session);
+//         console.log("Session error:", error);
+//     };
+
+//     checkSession();
+// }, []);
+
+
+//   useEffect(() => {
+//     const testSupabase = async () => {
+//         const { data, error } = await supabase
+//             .from("centres")
+//             .select("*");
+
+//         console.log("Centres data:", data);
+//         console.log("Centres error:", error);
+//     };
+
+//     testSupabase();
+// }, []);
+
   return (
     <Routes>
       {/* Public */}

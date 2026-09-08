@@ -1,334 +1,719 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-    CalendarDays,
-    CheckCircle2,
-    Clock3,
-    MapPin,
-    Wheat,
-    XCircle,
+  ArrowLeft,
+  CalendarDays,
+  Clock,
+  MapPin,
+  Ticket,
+  RefreshCw,
+  XCircle,
 } from "lucide-react";
+import { supabase } from "../../lib/supabase";
 
-import centre1 from "../../assets/images/procurement-centre-1.png";
-import centre2 from "../../assets/images/procurement-centre-2.png";
-import centre3 from "../../assets/images/procurement-centre-3.png";
+export default function MyBookings() {
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-const bookings = [
-    {
-        id: 1,
-        centre: "ABC Procurement Centre",
-        location: "XYZ Village, Ranchi, Jharkhand",
-        image: centre1,
-        crop: "Wheat",
-        date: "05 Sep 2026",
-        time: "10:00 AM - 11:00 AM",
-        token: "#124",
-        status: "Confirmed",
-        type: "upcoming",
-    },
-    {
-        id: 2,
-        centre: "Krishi Seva Kendra",
-        location: "Lohardaga, Jharkhand",
-        image: centre2,
-        crop: "Wheat",
-        date: "10 Sep 2026",
-        time: "11:00 AM - 12:00 PM",
-        token: "#198",
-        status: "Confirmed",
-        type: "upcoming",
-    },
-    {
-        id: 3,
-        centre: "Green Field Centre",
-        location: "Jamshedpur, Jharkhand",
-        image: centre3,
-        crop: "Maize",
-        date: "15 Sep 2026",
-        time: "09:00 AM - 10:00 AM",
-        token: "#256",
-        status: "Pending",
-        type: "upcoming",
-    },
-    {
-        id: 4,
-        centre: "Shakti Kendra",
-        location: "Bokaro, Jharkhand",
-        image: centre1,
-        crop: "Paddy",
-        date: "28 Aug 2026",
-        time: "10:00 AM - 11:00 AM",
-        token: "#091",
-        status: "Completed",
-        type: "completed",
-    },
-    {
-        id: 5,
-        centre: "ABC Procurement Centre",
-        location: "XYZ Village, Ranchi, Jharkhand",
-        image: centre1,
-        crop: "Wheat",
-        date: "18 Aug 2026",
-        time: "02:00 PM - 03:00 PM",
-        token: "#076",
-        status: "Completed",
-        type: "completed",
-    },
-    {
-        id: 6,
-        centre: "Krishi Seva Kendra",
-        location: "Lohardaga, Jharkhand",
-        image: centre2,
-        crop: "Maize",
-        date: "12 Aug 2026",
-        time: "09:00 AM - 10:00 AM",
-        token: "#064",
-        status: "Cancelled",
-        type: "cancelled",
-    },
-];
+  useEffect(() => {
+    fetchBookings();
+  }, []);
 
-function MyBookings() {
-    const [activeTab, setActiveTab] = useState("upcoming");
+  const fetchBookings = async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-    const filteredBookings = bookings.filter(
-        (booking) => booking.type === activeTab
+      // -----------------------------------------
+      // 1. Get logged-in farmer
+      // -----------------------------------------
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
+        setError("Please login first.");
+        return;
+      }
+
+      console.log("Logged in farmer:", user.id);
+
+      // -----------------------------------------
+      // 2. Fetch farmer bookings
+      // -----------------------------------------
+
+      const { data: bookingData, error: bookingError } =
+        await supabase
+          .from("bookings")
+          .select("*")
+          .eq("farmer_id", user.id)
+          .order("created_at", {
+            ascending: false,
+          });
+
+      if (bookingError) {
+        throw bookingError;
+      }
+
+      console.log("Bookings:", bookingData);
+
+      if (!bookingData || bookingData.length === 0) {
+        setBookings([]);
+        return;
+      }
+
+      // -----------------------------------------
+      // 3. Get IDs needed for related data
+      // -----------------------------------------
+
+      const centreIds = [
+        ...new Set(
+          bookingData
+            .map((booking) => booking.centre_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const cropIds = [
+        ...new Set(
+          bookingData
+            .map((booking) => booking.crop_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const slotIds = [
+        ...new Set(
+          bookingData
+            .map((booking) => booking.slot_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      // -----------------------------------------
+      // 4. Fetch centres
+      // -----------------------------------------
+
+      let centres = [];
+
+      if (centreIds.length > 0) {
+        const { data, error } = await supabase
+          .from("centres")
+          .select("*")
+          .in("id", centreIds);
+
+        if (error) {
+          console.error("Centre fetch error:", error);
+        } else {
+          centres = data || [];
+        }
+      }
+
+      // -----------------------------------------
+      // 5. Fetch crops
+      // -----------------------------------------
+
+      let crops = [];
+
+      if (cropIds.length > 0) {
+        const { data, error } = await supabase
+          .from("crops")
+          .select("*")
+          .in("id", cropIds);
+
+        if (error) {
+          console.error("Crop fetch error:", error);
+        } else {
+          crops = data || [];
+        }
+      }
+
+      // -----------------------------------------
+      // 6. Fetch time slots
+      // -----------------------------------------
+
+      let slots = [];
+
+      if (slotIds.length > 0) {
+        const { data, error } = await supabase
+          .from("time_slots")
+          .select("*")
+          .in("id", slotIds);
+
+        if (error) {
+          console.error("Slot fetch error:", error);
+        } else {
+          slots = data || [];
+        }
+      }
+
+      console.log("Centres:", centres);
+      console.log("Crops:", crops);
+      console.log("Slots:", slots);
+
+      // -----------------------------------------
+      // 7. Fetch procurements
+      // -----------------------------------------
+
+      const bookingIds = bookingData
+        .map((booking) => booking.id)
+        .filter(Boolean);
+
+      let procurements = [];
+
+      if (bookingIds.length > 0) {
+        const { data, error } = await supabase
+          .from("procurements")
+          .select("*")
+          .in("booking_id", bookingIds);
+
+        if (error) {
+          console.error(
+            "Procurement fetch error:",
+            error
+          );
+        } else {
+          procurements = data || [];
+        }
+      }
+
+      // -----------------------------------------
+      // 8. Combine everything
+      // -----------------------------------------
+
+      const finalBookings = bookingData.map((booking) => {
+        const centre = centres.find(
+          (item) => item.id === booking.centre_id
+        );
+
+        const crop = crops.find(
+          (item) => item.id === booking.crop_id
+        );
+
+        const slot = slots.find(
+          (item) => item.id === booking.slot_id
+        );
+
+        const procurement = procurements.find(
+          (item) => item.booking_id === booking.id
+        );
+
+        return {
+          ...booking,
+          centre,
+          crop,
+          slot,
+          procurement,
+        };
+      });
+
+      console.log(
+        "Final bookings:",
+        finalBookings
+      );
+
+      setBookings(finalBookings);
+    } catch (err) {
+      console.error(
+        "Fetch bookings error:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Unable to load your bookings."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -----------------------------------------
+  // Cancel booking
+  // -----------------------------------------
+
+  const handleCancel = async (bookingId) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to cancel this booking?"
     );
 
+    if (!confirmed) return;
+
+    try {
+      setError("");
+
+      const { data, error } =
+        await supabase.rpc("cancel_booking", {
+          p_booking_id: Number(bookingId),
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      console.log(
+        "Booking cancelled:",
+        data
+      );
+
+      await fetchBookings();
+    } catch (err) {
+      console.error(
+        "Cancel booking error:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Unable to cancel booking."
+      );
+    }
+  };
+
+  // -----------------------------------------
+  // Loading
+  // -----------------------------------------
+
+  if (loading) {
     return (
-        <div className="space-y-5 p-6">
-            {/* Page Header */}
-            <div>
-                <h1 className="text-xl font-bold text-[#10233f]">
-                    My Bookings
-                </h1>
+      <main className="min-h-full bg-[#f8faf9] px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-5xl">
+          <div className="flex min-h-[400px] items-center justify-center">
+            <div className="text-center">
+              <RefreshCw
+                size={28}
+                className="mx-auto animate-spin text-green-700"
+              />
 
-                <p className="mt-1 text-xs text-slate-500">
-                    View and manage all your bookings.
-                </p>
+              <p className="mt-3 text-sm text-slate-500">
+                Loading your bookings...
+              </p>
             </div>
-
-            {/* Tabs */}
-            <div className="border-b border-slate-200">
-                <div className="flex gap-6">
-                    <BookingTab
-                        label="Upcoming"
-                        value="upcoming"
-                        activeTab={activeTab}
-                        onClick={setActiveTab}
-                    />
-
-                    <BookingTab
-                        label="Completed"
-                        value="completed"
-                        activeTab={activeTab}
-                        onClick={setActiveTab}
-                    />
-
-                    <BookingTab
-                        label="Cancelled"
-                        value="cancelled"
-                        activeTab={activeTab}
-                        onClick={setActiveTab}
-                    />
-                </div>
-            </div>
-
-            {/* Booking List */}
-            <div className="space-y-3">
-                {filteredBookings.map((booking) => (
-                    <BookingCard
-                        key={booking.id}
-                        booking={booking}
-                    />
-                ))}
-            </div>
-
-            {/* Empty State */}
-            {filteredBookings.length === 0 && (
-                <div className="rounded-lg border border-slate-200 bg-white px-5 py-12 text-center">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-400">
-                        <CalendarDays size={22} />
-                    </div>
-
-                    <h2 className="mt-3 text-sm font-semibold text-[#10233f]">
-                        No {activeTab} bookings
-                    </h2>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                        Your {activeTab} bookings will appear here.
-                    </p>
-
-                    {activeTab === "upcoming" && (
-                        <Link
-                            to="/centres"
-                            className="mt-4 inline-flex rounded-md bg-[#087f3e] px-4 py-2 text-xs font-semibold text-white hover:bg-[#066b34]"
-                        >
-                            Find Procurement Centre
-                        </Link>
-                    )}
-                </div>
-            )}
-
-            {/* Bottom Information */}
-            <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-                <div className="flex items-start gap-2">
-                    <Clock3
-                        size={16}
-                        className="mt-0.5 shrink-0 text-blue-600"
-                    />
-
-                    <p className="text-[11px] leading-5 text-blue-700">
-                        Please reach the procurement centre at least 15 minutes
-                        before your booked slot and carry your digital token and
-                        necessary documents.
-                    </p>
-                </div>
-            </div>
+          </div>
         </div>
+      </main>
     );
-}
+  }
 
-function BookingTab({
-    label,
-    value,
-    activeTab,
-    onClick,
-}) {
-    const active = activeTab === value;
+  return (
+    <main className="min-h-full bg-[#f8faf9] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl">
 
-    return (
-        <button
-            type="button"
-            onClick={() => onClick(value)}
-            className={`relative pb-3 text-xs font-semibold transition ${active
-                    ? "text-green-700"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
+        {/* Back */}
+        <Link
+          to="/dashboard"
+          className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-green-700"
         >
-            {label}
+          <ArrowLeft size={16} />
+          Back to Dashboard
+        </Link>
 
-            {active && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-green-600" />
-            )}
-        </button>
-    );
-}
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-[#10233f]">
+            My Bookings
+          </h1>
 
-function BookingCard({ booking }) {
-    const isCompleted = booking.status === "Completed";
-    const isCancelled = booking.status === "Cancelled";
+          <p className="mt-1 text-sm text-slate-500">
+            View and manage your procurement centre bookings.
+          </p>
+        </div>
 
-    return (
-        <div className="rounded-lg border border-slate-200 bg-white p-3.5 transition hover:border-slate-300">
-            <div className="grid gap-4 lg:grid-cols-[125px_1fr_auto] lg:items-center">
-                {/* Centre Image */}
-                <img
-                    src={booking.image}
-                    alt={booking.centre}
-                    className="h-24 w-full rounded-md object-cover sm:h-28 lg:h-20"
-                />
+        {/* Error */}
+        {error && (
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
-                {/* Booking Details */}
-                <div className="min-w-0">
-                    <h2 className="text-sm font-bold text-[#10233f]">
-                        {booking.centre}
-                    </h2>
-
-                    <div className="mt-1 flex items-start gap-1 text-[10px] text-slate-500">
-                        <MapPin
-                            size={12}
-                            className="mt-0.5 shrink-0 text-green-600"
-                        />
-                        <span>{booking.location}</span>
-                    </div>
-
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        <BookingMeta
-                            icon={<Wheat size={12} />}
-                            value={booking.crop}
-                        />
-
-                        <BookingMeta
-                            icon={<CalendarDays size={12} />}
-                            value={booking.date}
-                        />
-
-                        <BookingMeta
-                            icon={<Clock3 size={12} />}
-                            value={booking.time}
-                        />
-                    </div>
-                </div>
-
-                {/* Token + Status + Button */}
-                <div className="flex flex-col items-stretch gap-3 border-t border-slate-100 pt-3 lg:min-w-[190px] lg:items-end lg:border-t-0 lg:pt-0">
-                    <div className="flex w-full items-start justify-between gap-8 lg:justify-end">
-                        <div>
-                            <p className="text-[9px] text-slate-400">
-                                Token Number
-                            </p>
-
-                            <p className="mt-0.5 text-lg font-bold text-green-700">
-                                {booking.token}
-                            </p>
-                        </div>
-
-                        <div className="text-right">
-                            <p className="text-[9px] text-slate-400">
-                                Status
-                            </p>
-
-                            <StatusBadge status={booking.status} />
-                        </div>
-                    </div>
-
-                    <Link
-                        to={`/centres/${booking.id}`}
-                        className="w-full rounded-md border border-green-600 px-2 py-2 text-center text-[10px] font-semibold text-green-700 transition hover:bg-green-50 sm:w-27.5"
-                    >
-                        View Details
-                    </Link>
-                </div>
+        {/* No bookings */}
+        {bookings.length === 0 ? (
+          <section className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-50">
+              <CalendarDays
+                size={26}
+                className="text-green-700"
+              />
             </div>
-        </div>
-    );
+
+            <h2 className="mt-4 text-lg font-bold text-[#10233f]">
+              No bookings yet
+            </h2>
+
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
+              You haven't booked a procurement slot yet.
+              Select a centre and choose an available slot to get started.
+            </p>
+
+            <Link
+              to="/centres"
+              className="mt-5 inline-flex items-center justify-center rounded-lg bg-green-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-green-800"
+            >
+              Book a Slot
+            </Link>
+          </section>
+        ) : (
+          <div className="space-y-5">
+
+            {bookings.map((booking) => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                onCancel={handleCancel}
+              />
+            ))}
+
+          </div>
+        )}
+      </div>
+    </main>
+  );
 }
 
-function BookingMeta({ icon, value }) {
-    return (
-        <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
-            <span className="text-green-600">{icon}</span>
-            <span>{value}</span>
-        </div>
-    );
-}
+// =====================================================
+// BOOKING CARD
+// =====================================================
 
-function StatusBadge({ status }) {
-    if (status === "Confirmed") {
-        return (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md border border-green-200 bg-green-50 px-2 py-1 text-[9px] font-semibold text-green-700">
-                <CheckCircle2 size={11} />
-                Confirmed
+function BookingCard({
+  booking,
+  onCancel,
+}) {
+  const centreName =
+    booking.centre?.name ||
+    "Procurement Centre";
+
+  const centreAddress =
+    booking.centre?.address ||
+    [
+      booking.centre?.district,
+      booking.centre?.state,
+    ]
+      .filter(Boolean)
+      .join(", ") ||
+    "Address not available";
+
+  const cropName =
+    booking.crop?.name ||
+    "Crop not available";
+
+  const token =
+    booking.token_number ||
+    booking.token ||
+    "—";
+
+  const bookingDate =
+    booking.booking_date ||
+    booking.slot?.slot_date ||
+    booking.slot?.date ||
+    null;
+
+  const bookingTime = getSlotTime(
+    booking.slot
+  );
+
+  const bookingStatus =
+    booking.status || "confirmed";
+
+  const procurementStatus =
+    booking.procurement?.status ||
+    null;
+
+  const displayStatus =
+    procurementStatus ||
+    bookingStatus;
+
+  const canCancel =
+    ["confirmed", "pending"].includes(
+      bookingStatus
+    );
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+
+      {/* Top */}
+      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+
+        <div>
+          <div className="flex items-center gap-2">
+            <Ticket
+              size={18}
+              className="text-green-700"
+            />
+
+            <span className="text-sm font-bold text-[#10233f]">
+              Booking #{booking.id}
             </span>
-        );
-    }
+          </div>
 
-    if (status === "Pending") {
-        return (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-semibold text-amber-700">
-                <Clock3 size={11} />
-                Pending
-            </span>
-        );
-    }
+          <p className="mt-1 text-xs text-slate-500">
+            Token #{token}
+          </p>
+        </div>
 
-    return (
-        <span className="mt-1 inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[9px] font-semibold text-red-600">
-            <XCircle size={11} />
-            Cancelled
-        </span>
-    );
+        <StatusBadge
+          status={displayStatus}
+        />
+
+      </div>
+
+      {/* Details */}
+      <div className="grid gap-4 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
+
+        {/* Centre */}
+        <InfoItem
+          icon={MapPin}
+          label="Centre"
+          value={centreName}
+        />
+
+        {/* Crop */}
+        <InfoItem
+          icon={CalendarDays}
+          label="Crop"
+          value={cropName}
+        />
+
+        {/* Date */}
+        <InfoItem
+          icon={CalendarDays}
+          label="Date"
+          value={
+            bookingDate
+              ? formatDate(bookingDate)
+              : "Not available"
+          }
+        />
+
+        {/* Time */}
+        <InfoItem
+          icon={Clock}
+          label="Time"
+          value={bookingTime}
+        />
+
+      </div>
+
+      {/* Address */}
+      <div className="border-t border-slate-100 px-5 py-4">
+        <div className="flex items-start gap-2">
+          <MapPin
+            size={16}
+            className="mt-0.5 shrink-0 text-slate-400"
+          />
+
+          <div>
+            <p className="text-[11px] font-medium text-slate-500">
+              Centre Address
+            </p>
+
+            <p className="mt-1 text-sm text-slate-700">
+              {centreAddress}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:justify-end">
+
+        <Link
+          to={`/queue?booking=${booking.id}`}
+          className="inline-flex items-center justify-center rounded-lg border border-green-700 px-4 py-2 text-sm font-semibold text-green-700 transition hover:bg-green-50"
+        >
+          View Live Queue
+        </Link>
+
+        {canCancel && (
+          <button
+            type="button"
+            onClick={() =>
+              onCancel(booking.id)
+            }
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+          >
+            <XCircle size={16} />
+            Cancel Booking
+          </button>
+        )}
+
+      </div>
+    </section>
+  );
 }
 
-export default MyBookings;
+// =====================================================
+// INFO ITEM
+// =====================================================
+
+function InfoItem({
+  icon: Icon,
+  label,
+  value,
+}) {
+  return (
+    <div className="flex items-start gap-3">
+
+      <div className="rounded-lg bg-slate-50 p-2">
+        <Icon
+          size={16}
+          className="text-slate-500"
+        />
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-[11px] font-medium text-slate-500">
+          {label}
+        </p>
+
+        <p className="mt-1 truncate text-sm font-semibold text-[#10233f]">
+          {value || "—"}
+        </p>
+      </div>
+
+    </div>
+  );
+}
+
+// =====================================================
+// STATUS BADGE
+// =====================================================
+
+function StatusBadge({
+  status,
+}) {
+  const normalized =
+    String(status || "")
+      .toLowerCase()
+      .replaceAll("_", " ");
+
+  let className =
+    "bg-slate-100 text-slate-700";
+
+  if (
+    ["confirmed", "waiting"].includes(
+      normalized
+    )
+  ) {
+    className =
+      "bg-blue-50 text-blue-700";
+  }
+
+  if (
+    ["called", "processing", "quality check"].includes(
+      normalized
+    )
+  ) {
+    className =
+      "bg-amber-50 text-amber-700";
+  }
+
+  if (
+    ["accepted", "completed", "successful"].includes(
+      normalized
+    )
+  ) {
+    className =
+      "bg-green-50 text-green-700";
+  }
+
+  if (
+    ["cancelled", "rejected", "failed"].includes(
+      normalized
+    )
+  ) {
+    className =
+      "bg-red-50 text-red-700";
+  }
+
+  return (
+    <span
+      className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold capitalize ${className}`}
+    >
+      {normalized || "Unknown"}
+    </span>
+  );
+}
+
+// =====================================================
+// DATE FORMAT
+// =====================================================
+
+function formatDate(date) {
+  if (!date) return "—";
+
+  const parsedDate = new Date(
+    `${date}T00:00:00`
+  );
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return date;
+  }
+
+  return parsedDate.toLocaleDateString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }
+  );
+}
+
+// =====================================================
+// SLOT TIME
+// =====================================================
+
+function getSlotTime(slot) {
+  if (!slot) {
+    return "Time not available";
+  }
+
+  if (
+    slot.start_time &&
+    slot.end_time
+  ) {
+    return `${formatTime(
+      slot.start_time
+    )} - ${formatTime(slot.end_time)}`;
+  }
+
+  if (slot.start_time) {
+    return formatTime(
+      slot.start_time
+    );
+  }
+
+  return "Time not available";
+}
+
+function formatTime(time) {
+  if (!time) return "";
+
+  const [hours, minutes] =
+    String(time).split(":");
+
+  const date = new Date();
+
+  date.setHours(
+    Number(hours),
+    Number(minutes),
+    0,
+    0
+  );
+
+  return date.toLocaleTimeString(
+    "en-IN",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }
+  );
+}

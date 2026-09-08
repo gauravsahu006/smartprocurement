@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "../../lib/supabase";
 import { Link, useNavigate } from "react-router-dom";
 import {
     Eye,
@@ -18,38 +19,116 @@ function Login() {
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
     const [error, setError] = useState("");
+    const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (event) => {
-        event.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
-        if (!mobile || !password) {
-            setError("Please enter mobile number and password.");
+    if (!mobile || !password) {
+        setError("Please enter email and password.");
+        return;
+    }
+
+    setError("");
+    setLoading(true);
+
+    try {
+        // 1. Login through Supabase Auth
+        const { data, error: loginError } =
+            await supabase.auth.signInWithPassword({
+                email: mobile,
+                password: password,
+            });
+
+        if (loginError) {
+            console.error("Centre login error:", loginError);
+            setError(loginError.message);
+            setLoading(false);
             return;
         }
 
-        const savedCentre = JSON.parse(
-            localStorage.getItem("centreOfficer")
+        const user = data.user;
+
+        console.log("Centre staff Auth user:", user);
+
+        // 2. Get user's profile
+        const { data: profile, error: profileError } =
+            await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", user.id)
+                .single();
+
+        if (profileError) {
+            console.error(
+                "Centre staff profile error:",
+                profileError
+            );
+
+            await supabase.auth.signOut();
+
+            setError("Unable to load your profile.");
+            setLoading(false);
+            return;
+        }
+
+        console.log("Centre staff profile:", profile);
+
+        // 3. Check role
+        if (profile.role !== "centre_staff") {
+            await supabase.auth.signOut();
+
+            setError(
+                "This account is not registered as centre staff."
+            );
+
+            setLoading(false);
+            return;
+        }
+
+        // 4. Check centre assignment
+        const { data: staffAssignment, error: assignmentError } =
+            await supabase
+                .from("centre_staff")
+                .select("*")
+                .eq("user_id", user.id)
+                .single();
+
+        if (assignmentError) {
+            console.error(
+                "Centre assignment error:",
+                assignmentError
+            );
+
+            await supabase.auth.signOut();
+
+            setError(
+                "No procurement centre is assigned to this account."
+            );
+
+            setLoading(false);
+            return;
+        }
+
+        console.log(
+            "Centre staff assignment:",
+            staffAssignment
         );
 
-        if (!savedCentre) {
-            setError("No registered centre found. Please register first.");
-            return;
-        }
-
-        if (
-            savedCentre.mobile !== mobile ||
-            savedCentre.password !== password
-        ) {
-            setError("Invalid mobile number or password.");
-            return;
-        }
-
+        // 5. Login successful
         setError("");
 
-        localStorage.setItem("centreLoggedIn", "true");
+        console.log("Centre staff login successful!");
 
         navigate("/centre/dashboard");
-    };
+    } catch (error) {
+        console.error("Unexpected centre login error:", error);
+
+        setError("Something went wrong. Please try again.");
+    } finally {
+        setLoading(false);
+    }
+};
     
     return (
         <div className="min-h-screen overflow-hidden ">
@@ -108,11 +187,11 @@ function Login() {
                             <div className="relative">
                                 <UserRound className="absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-slate-500" />
 
-                                <input
-                                    type="tel"
-                                    value={mobile}
-                                    onChange={(event) => setMobile(event.target.value)}
-                                    placeholder="Mobile Number"
+                               <input
+    type="email"
+    value={mobile}
+    onChange={(event) => setMobile(event.target.value)}
+    placeholder="Email"
                                     className="h-12 w-full rounded-lg border border-slate-300 bg-white pl-11 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-500 focus:border-green-600 focus:ring-2 focus:ring-green-100"
                                 />
                             </div>
@@ -175,11 +254,12 @@ function Login() {
 
                             {/* Login Button */}
                             <button
-                                type="submit"
-                                className="mt-2 h-12 w-full rounded-lg bg-green-700 text-base font-bold text-white shadow-sm transition hover:bg-green-800 active:scale-[0.99]"
-                            >
-                                Login
-                            </button>
+    type="submit"
+    disabled={loading}
+    className="mt-2 h-12 w-full rounded-lg bg-green-700 text-base font-bold text-white shadow-sm transition hover:bg-green-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+>
+    {loading ? "Logging in..." : "Login"}
+</button>
                         </form>
 
                         {/* Contact Admin */}

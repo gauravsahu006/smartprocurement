@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "../../lib/supabase";
 import { Link, useNavigate } from "react-router-dom";
 import {
   CalendarDays,
@@ -7,7 +8,7 @@ import {
   Leaf,
   LocateFixed,
   LockKeyhole,
-  Phone,
+  Mail,
   ShieldCheck,
   Ticket,
   WalletCards,
@@ -27,22 +28,25 @@ function FarmerLogin() {
 
   const [errors, setErrors] = useState({});
 
+  const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    if (name === "mobile") {
-      const numbersOnly = value.replace(/\D/g, "").slice(0, 10);
+    // if (name === "mobile") {
+    //   const numbersOnly = value.replace(/\D/g, "").slice(0, 10);
 
-      setForm({
-        ...form,
-        mobile: numbersOnly,
-      });
-    } else {
+    //   setForm({
+    //     ...form,
+    //     mobile: numbersOnly,
+    //   });
+    // } else {
       setForm({
         ...form,
         [name]: value,
       });
-    }
+    // }
 
     // Remove error while user corrects the field
     if (errors[name]) {
@@ -51,16 +55,21 @@ function FarmerLogin() {
         [name]: "",
       });
     }
+
+    if (authError) {
+    setAuthError("");
+   }
+
   };
 
   const validateForm = () => {
     const newErrors = {};
 
-    if (!form.mobile) {
-      newErrors.mobile = "Mobile number is required.";
-    } else if (!/^[6-9]\d{9}$/.test(form.mobile)) {
-      newErrors.mobile = "Enter a valid 10-digit mobile number.";
-    }
+   if (!form.mobile) {
+  newErrors.mobile = "Email is required.";
+} else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.mobile)) {
+  newErrors.mobile = "Enter a valid email address.";
+}
 
     if (!form.password) {
       newErrors.password = "Password is required.";
@@ -73,18 +82,36 @@ function FarmerLogin() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+ const handleSubmit = async (e) => {
+  e.preventDefault();
 
-    const isValid = validateForm();
+  const isValid = validateForm();
 
-    if (!isValid) {
-      return;
-    }
+  if (!isValid) {
+    return;
+  }
 
-    // Temporary navigation until backend authentication is added
-    navigate("/dashboard");
-  };
+  setAuthError("");
+  setLoading(true);
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: form.mobile,
+    password: form.password,
+  });
+
+  if (error) {
+    console.error("Supabase login error:", error);
+    setAuthError(error.message);
+    setLoading(false);
+    return;
+  }
+
+  console.log("Login successful:", data.user);
+
+  setLoading(false);
+
+  navigate("/dashboard");
+};
 
   return (
     <div className="min-h-screen bg-white">
@@ -140,11 +167,11 @@ function FarmerLogin() {
                 {/* Mobile */}
                 <div>
                   <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                    Mobile Number
+                   Email
                   </label>
 
                   <div className="relative">
-                    <Phone
+                    <Mail
                       className={`absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 ${
                         errors.mobile
                           ? "text-red-500"
@@ -153,19 +180,17 @@ function FarmerLogin() {
                     />
 
                     <input
-                      type="tel"
-                      name="mobile"
-                      value={form.mobile}
-                      onChange={handleChange}
-                      placeholder="Enter mobile number"
-                      inputMode="numeric"
-                      maxLength={10}
-                      className={`h-12 w-full rounded-lg border bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:ring-2 ${
-                        errors.mobile
-                          ? "border-red-500 focus:border-red-500 focus:ring-red-100"
-                          : "border-slate-200 focus:border-green-600 focus:ring-green-100"
-                      }`}
-                    />
+  type="email"
+  name="mobile"
+  value={form.mobile}
+  onChange={handleChange}
+  placeholder="Enter your email"
+  className={`h-12 w-full rounded-lg border bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:ring-2 ${
+    errors.mobile
+      ? "border-red-500 focus:border-red-500 focus:ring-red-100"
+      : "border-slate-200 focus:border-green-600 focus:ring-green-100"
+  }`}
+/>
                   </div>
 
                   {errors.mobile && (
@@ -230,6 +255,13 @@ function FarmerLogin() {
                       {errors.password}
                     </p>
                   )}
+
+                    {authError && (
+  <p className="mt-1.5 text-xs font-medium text-red-600">
+    {authError}
+  </p>
+)}
+
                 </div>
 
                 {/* Remember */}
@@ -243,11 +275,12 @@ function FarmerLogin() {
 
                 {/* Login */}
                 <button
-                  type="submit"
-                  className="h-12 w-full rounded-lg bg-green-700 text-sm font-bold text-white shadow-sm transition hover:bg-green-800"
-                >
-                  Login
-                </button>
+  type="submit"
+  disabled={loading}
+  className="h-12 w-full rounded-lg bg-green-700 text-sm font-bold text-white shadow-sm transition hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-70"
+>
+  {loading ? "Logging in..." : "Login"}
+</button>
               </form>
 
               <p className="mt-6 text-center text-sm text-slate-600">
