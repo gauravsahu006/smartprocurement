@@ -28,7 +28,7 @@ function Dashboard() {
   }, []);
 
   // --------------------------------------------------
-  // Get current date in India/local browser timezone
+  // Get current date in browser/local timezone
   // --------------------------------------------------
   const getLocalDate = () => {
     const now = new Date();
@@ -49,7 +49,7 @@ function Dashboard() {
 
     try {
       // ==================================================
-      // 1. Get logged-in staff
+      // 1. Get logged-in centre staff
       // ==================================================
       const {
         data: { user },
@@ -57,22 +57,31 @@ function Dashboard() {
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        console.error("Dashboard user error:", userError);
+        console.error(
+          "Dashboard user error:",
+          userError
+        );
+
         setError("Please login again.");
         return;
       }
 
-      console.log("Dashboard logged-in staff:", user);
+      console.log(
+        "Dashboard logged-in staff:",
+        user
+      );
 
       // ==================================================
       // 2. Get staff centre assignment
       // ==================================================
-      const { data: staffAssignment, error: staffError } =
-        await supabase
-          .from("centre_staff")
-          .select("centre_id")
-          .eq("user_id", user.id)
-          .single();
+      const {
+        data: staffAssignment,
+        error: staffError,
+      } = await supabase
+        .from("centre_staff")
+        .select("centre_id")
+        .eq("user_id", user.id)
+        .single();
 
       if (staffError || !staffAssignment) {
         console.error(
@@ -92,17 +101,20 @@ function Dashboard() {
         staffAssignment
       );
 
-      const centreId = staffAssignment.centre_id;
+      const centreId =
+        staffAssignment.centre_id;
 
       // ==================================================
       // 3. Get centre details
       // ==================================================
-      const { data: centreData, error: centreError } =
-        await supabase
-          .from("centres")
-          .select("*")
-          .eq("id", centreId)
-          .single();
+      const {
+        data: centreData,
+        error: centreError,
+      } = await supabase
+        .from("centres")
+        .select("*")
+        .eq("id", centreId)
+        .single();
 
       if (centreError || !centreData) {
         console.error(
@@ -125,7 +137,7 @@ function Dashboard() {
       setCentre(centreData);
 
       // ==================================================
-      // 4. Get today's date
+      // 4. Today's date
       // ==================================================
       const today = getLocalDate();
 
@@ -168,7 +180,13 @@ function Dashboard() {
       }
 
       // ==================================================
-      // 6. Get active queue
+      // 6. Get ACTIVE queue
+      //
+      // IMPORTANT:
+      // Do NOT filter this by booking_date.
+      //
+      // queue_entries itself tells us whether a farmer
+      // is currently active in the queue.
       // ==================================================
       const {
         data: queueData,
@@ -202,26 +220,25 @@ function Dashboard() {
 
         setQueueEntries([]);
       } else {
-        // ----------------------------------------------
-        // Only today's queue
-        // ----------------------------------------------
-        const todaysQueue = (queueData || []).filter(
-          (entry) =>
-            entry.booking?.booking_date === today
-        );
+        // ------------------------------------------------
+        // IMPORTANT:
+        // No booking_date filter here.
+        // ------------------------------------------------
+        const activeQueue =
+          queueData || [];
 
         console.log(
-          "Today's active queue:",
-          todaysQueue
+          "Active queue:",
+          activeQueue
         );
 
-        if (todaysQueue.length > 0) {
-          // --------------------------------------------
-          // Get unique farmer IDs
-          // --------------------------------------------
+        if (activeQueue.length > 0) {
+          // ----------------------------------------------
+          // Unique farmer IDs
+          // ----------------------------------------------
           const farmerIds = [
             ...new Set(
-              todaysQueue
+              activeQueue
                 .map(
                   (entry) =>
                     entry.booking?.farmer_id
@@ -230,12 +247,12 @@ function Dashboard() {
             ),
           ];
 
-          // --------------------------------------------
-          // Get unique crop IDs
-          // --------------------------------------------
+          // ----------------------------------------------
+          // Unique crop IDs
+          // ----------------------------------------------
           const cropIds = [
             ...new Set(
-              todaysQueue
+              activeQueue
                 .map(
                   (entry) =>
                     entry.booking?.crop_id
@@ -244,9 +261,9 @@ function Dashboard() {
             ),
           ];
 
-          // --------------------------------------------
+          // ----------------------------------------------
           // Fetch farmer profiles
-          // --------------------------------------------
+          // ----------------------------------------------
           let farmers = [];
 
           if (farmerIds.length > 0) {
@@ -255,8 +272,13 @@ function Dashboard() {
               error: farmersError,
             } = await supabase
               .from("profiles")
-              .select("id, full_name")
-              .in("id", farmerIds);
+              .select(
+                "id, full_name"
+              )
+              .in(
+                "id",
+                farmerIds
+              );
 
             if (farmersError) {
               console.error(
@@ -264,13 +286,14 @@ function Dashboard() {
                 farmersError
               );
             } else {
-              farmers = farmerData || [];
+              farmers =
+                farmerData || [];
             }
           }
 
-          // --------------------------------------------
+          // ----------------------------------------------
           // Fetch crops
-          // --------------------------------------------
+          // ----------------------------------------------
           let crops = [];
 
           if (cropIds.length > 0) {
@@ -279,8 +302,13 @@ function Dashboard() {
               error: cropsError,
             } = await supabase
               .from("crops")
-              .select("id, name")
-              .in("id", cropIds);
+              .select(
+                "id, name"
+              )
+              .in(
+                "id",
+                cropIds
+              );
 
             if (cropsError) {
               console.error(
@@ -288,7 +316,8 @@ function Dashboard() {
                 cropsError
               );
             } else {
-              crops = cropData || [];
+              crops =
+                cropData || [];
             }
           }
 
@@ -302,40 +331,44 @@ function Dashboard() {
             crops
           );
 
-          // --------------------------------------------
+          // ----------------------------------------------
           // Enrich queue
-          // --------------------------------------------
+          // ----------------------------------------------
           const enrichedQueue =
-            todaysQueue.map((entry) => {
-              const farmer =
-                farmers.find(
-                  (item) =>
-                    item.id ===
-                    entry.booking?.farmer_id
-                );
+            activeQueue.map(
+              (entry) => {
+                const farmer =
+                  farmers.find(
+                    (item) =>
+                      item.id ===
+                      entry.booking
+                        ?.farmer_id
+                  );
 
-              const crop =
-                crops.find(
-                  (item) =>
-                    item.id ===
-                    entry.booking?.crop_id
-                );
+                const crop =
+                  crops.find(
+                    (item) =>
+                      item.id ===
+                      entry.booking
+                        ?.crop_id
+                  );
 
-              return {
-                ...entry,
+                return {
+                  ...entry,
 
-                farmer_name:
-                  farmer?.full_name ||
-                  "Unknown Farmer",
+                  farmer_name:
+                    farmer?.full_name ||
+                    "Unknown Farmer",
 
-                crop_name:
-                  crop?.name ||
-                  "Unknown Crop",
-              };
-            });
+                  crop_name:
+                    crop?.name ||
+                    "Unknown Crop",
+                };
+              }
+            );
 
           console.log(
-            "Enriched queue:",
+            "Enriched active queue:",
             enrichedQueue
           );
 
@@ -350,18 +383,14 @@ function Dashboard() {
       // ==================================================
       // 7. Get today's procurements
       //
-      // IMPORTANT:
-      // Do NOT filter using procurement.created_at.
-      //
-      // Instead:
-      // Today's bookings -> booking IDs -> procurements
+      // Use today's booking IDs instead of
+      // procurement.created_at because of timezone issues.
       // ==================================================
-
-      const bookingIds = (
-        bookingsData || []
-      ).map(
-        (booking) => booking.id
-      );
+      const bookingIds =
+        (bookingsData || []).map(
+          (booking) =>
+            booking.id
+        );
 
       let procurementData = [];
 
@@ -373,7 +402,10 @@ function Dashboard() {
           .from("procurements")
           .select("*")
           .eq("centre_id", centreId)
-          .in("booking_id", bookingIds)
+          .in(
+            "booking_id",
+            bookingIds
+          )
           .order("updated_at", {
             ascending: false,
           });
@@ -384,7 +416,8 @@ function Dashboard() {
             procurementError
           );
         } else {
-          procurementData = data || [];
+          procurementData =
+            data || [];
         }
       }
 
@@ -398,12 +431,8 @@ function Dashboard() {
       );
 
       // ==================================================
-      // 8. Get today's payments
-      //
-      // Today's procurements -> procurement IDs
-      // -> payments
+      // 8. Get payments
       // ==================================================
-
       const procurementIds =
         procurementData.map(
           (procurement) =>
@@ -433,7 +462,8 @@ function Dashboard() {
             paymentError
           );
         } else {
-          paymentData = data || [];
+          paymentData =
+            data || [];
         }
       }
 
@@ -448,10 +478,7 @@ function Dashboard() {
 
       // ==================================================
       // 9. Get weighments
-      //
-      // Quantity should come from actual weighing
       // ==================================================
-
       let weighmentData = [];
 
       if (procurementIds.length > 0) {
@@ -484,9 +511,10 @@ function Dashboard() {
         "Today's weighments:",
         weighmentData
       );
+
       setTodayWeighments(
-  weighmentData
-);
+        weighmentData
+      );
     } catch (err) {
       console.error(
         "Dashboard error:",
@@ -505,11 +533,11 @@ function Dashboard() {
   // Dashboard Calculations
   // ==================================================
 
-  // Total tokens booked today
+  // Today's bookings
   const totalTokens =
     todayBookings.length;
 
-  // Farmers currently in active queue
+  // Current active queue
   const currentlyInQueue =
     queueEntries.length;
 
@@ -517,31 +545,31 @@ function Dashboard() {
   const procurementDone =
     todayProcurements.filter(
       (item) =>
-        item.status === "completed"
+        item.status ===
+        "completed"
     ).length;
 
-  // --------------------------------------------------
   // Pending payments
-  // --------------------------------------------------
   const pendingPayments =
     todayPayments.filter(
       (item) =>
-        item.status === "pending"
+        String(
+          item.status || ""
+        ).toLowerCase() ===
+        "pending"
     ).length;
 
-  // --------------------------------------------------
-  // Quantity
-  //
-  // Use actual weighment quantity.
-  // Procurement table may not contain quantity.
-  // --------------------------------------------------
-const totalQuantity =
-  todayWeighments.reduce(
-    (total, weighment) =>
-      total +
-      Number(weighment.quantity || 0),
-    0
-  );
+  // Actual weighed quantity
+  const totalQuantity =
+    todayWeighments.reduce(
+      (total, weighment) =>
+        total +
+        Number(
+          weighment.quantity || 0
+        ),
+      0
+    );
+
   return (
     <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6 lg:px-7">
 
@@ -558,7 +586,8 @@ const totalQuantity =
           <p className="mt-1 text-[10px] font-semibold text-green-700 sm:text-xs">
             {loading
               ? "Loading centre..."
-              : centre?.name || "Centre"}
+              : centre?.name ||
+                "Centre"}
           </p>
         </div>
 
@@ -599,13 +628,11 @@ const totalQuantity =
         <div className="rounded-lg border border-green-200 bg-white p-4 shadow-sm">
 
           <div className="flex items-center justify-between">
-
             <p className="text-[9px] font-semibold text-slate-500">
               Total Tokens Today
             </p>
 
             <CheckCircle2 className="h-4 w-4 text-green-700" />
-
           </div>
 
           <p className="mt-2 text-2xl font-extrabold text-green-700">
@@ -620,20 +647,17 @@ const totalQuantity =
           >
             View Details
           </button>
-
         </div>
 
         {/* Currently In Queue */}
         <div className="rounded-lg border border-blue-200 bg-white p-4 shadow-sm">
 
           <div className="flex items-center justify-between">
-
             <p className="text-[9px] font-semibold text-slate-500">
               Currently in Queue
             </p>
 
             <Users className="h-4 w-4 text-blue-700" />
-
           </div>
 
           <p className="mt-2 text-2xl font-extrabold text-blue-700">
@@ -648,20 +672,17 @@ const totalQuantity =
           >
             View Queue
           </button>
-
         </div>
 
         {/* Procurement Done */}
         <div className="rounded-lg border border-orange-200 bg-white p-4 shadow-sm">
 
           <div className="flex items-center justify-between">
-
             <p className="text-[9px] font-semibold text-slate-500">
               Procurement Done
             </p>
 
             <PackageCheck className="h-4 w-4 text-orange-600" />
-
           </div>
 
           <p className="mt-2 text-2xl font-extrabold text-orange-600">
@@ -676,20 +697,17 @@ const totalQuantity =
           >
             View Details
           </button>
-
         </div>
 
         {/* Pending Payments */}
         <div className="rounded-lg border border-purple-200 bg-white p-4 shadow-sm">
 
           <div className="flex items-center justify-between">
-
             <p className="text-[9px] font-semibold text-slate-500">
               Pending Payments
             </p>
 
             <Clock3 className="h-4 w-4 text-purple-700" />
-
           </div>
 
           <p className="mt-2 text-2xl font-extrabold text-purple-700">
@@ -704,7 +722,6 @@ const totalQuantity =
           >
             View Details
           </button>
-
         </div>
       </section>
 
@@ -731,7 +748,6 @@ const totalQuantity =
             </div>
 
             <BellRing className="h-4 w-4 text-green-700" />
-
           </div>
 
           {/* Table */}
@@ -776,7 +792,8 @@ const totalQuantity =
                       Loading queue...
                     </td>
                   </tr>
-                ) : queueEntries.length === 0 ? (
+                ) : queueEntries.length ===
+                  0 ? (
                   <tr>
                     <td
                       colSpan="5"
@@ -821,14 +838,15 @@ const totalQuantity =
           </div>
 
           <div className="mt-3 text-center">
+
             <button
               type="button"
               className="text-[9px] font-bold text-green-700 hover:underline"
             >
               View Full Queue
             </button>
-          </div>
 
+          </div>
         </div>
 
         {/* ==================================================
@@ -864,7 +882,9 @@ const totalQuantity =
               value={
                 loading
                   ? "..."
-                  : totalQuantity.toFixed(2)
+                  : totalQuantity.toFixed(
+                      2
+                    )
               }
             />
 
@@ -895,7 +915,6 @@ const totalQuantity =
           </button>
 
         </div>
-
       </section>
 
       {/* ==================================================
@@ -925,7 +944,6 @@ const totalQuantity =
         </button>
 
       </section>
-
     </div>
   );
 }
@@ -949,7 +967,6 @@ function QueueRow({
           : ""
       }`}
     >
-
       <td className="py-2.5 text-[9px] font-bold text-green-700">
         {token}
       </td>
@@ -979,7 +996,6 @@ function QueueRow({
       <td className="py-2.5 text-right text-[9px] font-bold text-slate-700">
         {wait}
       </td>
-
     </tr>
   );
 }

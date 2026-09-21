@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Clock3,
@@ -10,139 +10,493 @@ import {
   Wheat,
   XCircle,
 } from "lucide-react";
+import { supabase } from "../../lib/supabase";
 
-const initialRecords = [
-  {
-    id: "PR241124",
-    bookingId: "SP241124",
-    farmer: "Rajesh Kumar",
-    farmerId: "FR10241",
-    centre: "ABC Procurement Centre",
-    crop: "Wheat",
-    bookedQuantity: 48.5,
-    actualQuantity: 48.2,
-    rate: 2125,
-    amount: "₹1,02,425",
-    moisture: "12.4%",
-    grade: "A",
-    status: "Completed",
-    date: "06 Sep 2026",
-  },
-  {
-    id: "PR241125",
-    bookingId: "SP241125",
-    farmer: "Ramesh Mahto",
-    farmerId: "FR10242",
-    centre: "Krishi Seva Kendra",
-    crop: "Wheat",
-    bookedQuantity: 32,
-    actualQuantity: 31.8,
-    rate: 2125,
-    amount: "₹67,575",
-    moisture: "13.1%",
-    grade: "A",
-    status: "Quality Check",
-    date: "06 Sep 2026",
-  },
-  {
-    id: "PR241126",
-    bookingId: "SP241126",
-    farmer: "Sita Devi",
-    farmerId: "FR10243",
-    centre: "Green Field Centre",
-    crop: "Maize",
-    bookedQuantity: 25,
-    actualQuantity: 24.7,
-    rate: 1980,
-    amount: "₹48,906",
-    moisture: "13.8%",
-    grade: "B",
-    status: "Weighing",
-    date: "06 Sep 2026",
-  },
-  {
-    id: "PR241120",
-    bookingId: "SP241120",
-    farmer: "Mohan Oraon",
-    farmerId: "FR10237",
-    centre: "ABC Procurement Centre",
-    crop: "Wheat",
-    bookedQuantity: 40,
-    actualQuantity: 39.6,
-    rate: 2125,
-    amount: "₹84,150",
-    moisture: "12.7%",
-    grade: "A",
-    status: "Completed",
-    date: "05 Sep 2026",
-  },
-  {
-    id: "PR241118",
-    bookingId: "SP241118",
-    farmer: "Birsa Tudu",
-    farmerId: "FR10235",
-    centre: "Shakti Kendra",
-    crop: "Maize",
-    bookedQuantity: 28,
-    actualQuantity: 27.6,
-    rate: 1980,
-    amount: "₹54,648",
-    moisture: "14.2%",
-    grade: "B",
-    status: "Payment Pending",
-    date: "05 Sep 2026",
-  },
-  {
-    id: "PR241115",
-    bookingId: "SP241115",
-    farmer: "Pawan Kumar",
-    farmerId: "FR10231",
-    centre: "Krishi Seva Kendra",
-    crop: "Rice",
-    bookedQuantity: 35,
-    actualQuantity: 0,
-    rate: 2183,
-    amount: "₹0",
-    moisture: "-",
-    grade: "-",
-    status: "Cancelled",
-    date: "04 Sep 2026",
-  },
+const tabs = [
+  "All",
+  "Quality Check",
+  "Weighing",
+  "Completed",
+  "Payment Pending",
+  "Cancelled",
 ];
 
+const statusClasses = {
+  "Quality Check": "bg-blue-50 text-blue-700",
+  Weighing: "bg-amber-50 text-amber-700",
+  Completed: "bg-green-50 text-green-700",
+  "Payment Pending": "bg-purple-50 text-purple-700",
+  Cancelled: "bg-red-50 text-red-700",
+};
+
+const statusIcon = {
+  "Quality Check": <Clock3 className="h-3.5 w-3.5" />,
+  Weighing: <Scale className="h-3.5 w-3.5" />,
+  Completed: <CheckCircle2 className="h-3.5 w-3.5" />,
+  "Payment Pending": <PackageCheck className="h-3.5 w-3.5" />,
+  Cancelled: <XCircle className="h-3.5 w-3.5" />,
+};
+
+function formatDate(date) {
+  if (!date) return "-";
+
+  return new Date(date).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatCurrency(value) {
+  if (!value || Number(value) <= 0) return "₹0";
+
+  return `₹${Number(value).toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function getProcurementStatus(procurement, payment) {
+  const status = String(procurement?.status || "").toLowerCase();
+
+  if (
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "rejected"
+  ) {
+    return "Cancelled";
+  }
+
+  if (status === "completed") {
+    return "Completed";
+  }
+
+  if (
+    payment &&
+    String(payment.status || "").toLowerCase() === "successful"
+  ) {
+    return "Completed";
+  }
+
+  if (
+    status === "accepted" ||
+    status === "payment" ||
+    status === "payment_pending"
+  ) {
+    return "Payment Pending";
+  }
+
+  if (
+    status === "quality_check" ||
+    status === "quality"
+  ) {
+    return "Quality Check";
+  }
+
+  return "Weighing";
+}
+
 function AdminProcurement() {
-  const [records, setRecords] = useState(initialRecords);
+  const [records, setRecords] = useState([]);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("All");
   const [selectedRecord, setSelectedRecord] = useState(null);
 
-  const tabs = [
-    "All",
-    "Quality Check",
-    "Weighing",
-    "Completed",
-    "Payment Pending",
-    "Cancelled",
-  ];
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // --------------------------------------------------
+  // FETCH PROCUREMENT DATA
+  // --------------------------------------------------
+
+  const fetchProcurements = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      // 1. Get procurements
+      const { data: procurements, error: procurementError } =
+        await supabase
+          .from("procurements")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+      if (procurementError) {
+        throw procurementError;
+      }
+
+      if (!procurements || procurements.length === 0) {
+        setRecords([]);
+        return;
+      }
+
+      // --------------------------------------------------
+      // 2. GET RELATED IDS
+      // --------------------------------------------------
+
+      const bookingIds = [
+        ...new Set(
+          procurements
+            .map((item) => item.booking_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const farmerIds = [
+        ...new Set(
+          procurements
+            .map((item) => item.farmer_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const centreIds = [
+        ...new Set(
+          procurements
+            .map((item) => item.centre_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const cropIds = [
+        ...new Set(
+          procurements
+            .map((item) => item.crop_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const procurementIds = procurements.map(
+        (item) => item.id
+      );
+
+      // --------------------------------------------------
+      // 3. FETCH ALL RELATED DATA
+      // --------------------------------------------------
+
+      const [
+        bookingsResult,
+        profilesResult,
+        centresResult,
+        cropsResult,
+        weighmentsResult,
+        qualityResult,
+        paymentsResult,
+      ] = await Promise.all([
+        bookingIds.length
+          ? supabase
+              .from("bookings")
+              .select("*")
+              .in("id", bookingIds)
+          : { data: [], error: null },
+
+        farmerIds.length
+          ? supabase
+              .from("profiles")
+              .select("id, full_name, role")
+              .in("id", farmerIds)
+          : { data: [], error: null },
+
+        centreIds.length
+          ? supabase
+              .from("centres")
+              .select("*")
+              .in("id", centreIds)
+          : { data: [], error: null },
+
+        cropIds.length
+          ? supabase
+              .from("crops")
+              .select("*")
+              .in("id", cropIds)
+          : { data: [], error: null },
+
+        procurementIds.length
+          ? supabase
+              .from("weighments")
+              .select("*")
+              .in("procurement_id", procurementIds)
+          : { data: [], error: null },
+
+        procurementIds.length
+          ? supabase
+              .from("quality_checks")
+              .select("*")
+              .in("procurement_id", procurementIds)
+          : { data: [], error: null },
+
+        procurementIds.length
+          ? supabase
+              .from("payments")
+              .select("*")
+              .in("procurement_id", procurementIds)
+          : { data: [], error: null },
+      ]);
+
+      // --------------------------------------------------
+      // 4. CHECK ERRORS
+      // --------------------------------------------------
+
+      const results = [
+        bookingsResult,
+        profilesResult,
+        centresResult,
+        cropsResult,
+        weighmentsResult,
+        qualityResult,
+        paymentsResult,
+      ];
+
+      const failedResult = results.find(
+        (result) => result.error
+      );
+
+      if (failedResult?.error) {
+        throw failedResult.error;
+      }
+
+      const bookings = bookingsResult.data || [];
+      const profiles = profilesResult.data || [];
+      const centres = centresResult.data || [];
+      const crops = cropsResult.data || [];
+      const weighments = weighmentsResult.data || [];
+      const qualityChecks = qualityResult.data || [];
+      const payments = paymentsResult.data || [];
+
+      // --------------------------------------------------
+      // 5. CREATE LOOKUP MAPS
+      // --------------------------------------------------
+
+      const bookingMap = new Map(
+        bookings.map((item) => [item.id, item])
+      );
+
+      const profileMap = new Map(
+        profiles.map((item) => [item.id, item])
+      );
+
+      const centreMap = new Map(
+        centres.map((item) => [item.id, item])
+      );
+
+      const cropMap = new Map(
+        crops.map((item) => [item.id, item])
+      );
+
+      // --------------------------------------------------
+      // 6. MAP PROCUREMENT DATA
+      // --------------------------------------------------
+
+      const formattedRecords = procurements.map(
+        (procurement) => {
+          const booking =
+            bookingMap.get(procurement.booking_id);
+
+          const farmer =
+            profileMap.get(procurement.farmer_id);
+
+          const centre =
+            centreMap.get(procurement.centre_id);
+
+          const crop =
+            cropMap.get(procurement.crop_id);
+
+          const weighment =
+            weighments.find(
+              (item) =>
+                item.procurement_id === procurement.id
+            );
+
+          const quality =
+            qualityChecks.find(
+              (item) =>
+                item.procurement_id === procurement.id
+            );
+
+          const payment =
+            payments.find(
+              (item) =>
+                item.procurement_id === procurement.id
+            );
+
+          const actualQuantity =
+            weighment?.quantity ??
+            procurement.quantity ??
+            0;
+
+          const bookedQuantity =
+            booking?.quantity ??
+            booking?.booked_quantity ??
+            procurement.quantity ??
+            0;
+
+          const rate =
+            payment?.rate_per_quintal ??
+            procurement.rate_per_quintal ??
+            0;
+
+          const amount =
+            payment?.total_amount ??
+            Number(actualQuantity || 0) *
+              Number(rate || 0);
+
+          const status = getProcurementStatus(
+            procurement,
+            payment
+          );
+
+          return {
+            id: `PR${String(procurement.id).padStart(
+              6,
+              "0"
+            )}`,
+
+            rawId: procurement.id,
+
+            bookingId: booking?.id
+              ? `BK${String(booking.id).padStart(
+                  6,
+                  "0"
+                )}`
+              : "-",
+
+            rawBookingId: booking?.id,
+
+            farmer:
+              farmer?.full_name ||
+              farmer?.name ||
+              "Unknown Farmer",
+
+            farmerId:
+              procurement.farmer_id || "-",
+
+            centre:
+              centre?.name ||
+              centre?.centre_name ||
+              "Unknown Centre",
+
+            crop:
+              crop?.name ||
+              crop?.crop_name ||
+              "Unknown Crop",
+
+            bookedQuantity: Number(
+              bookedQuantity || 0
+            ),
+
+            actualQuantity: Number(
+              actualQuantity || 0
+            ),
+
+            rate: Number(rate || 0),
+
+            amount,
+
+            moisture:
+              quality?.moisture !== null &&
+              quality?.moisture !== undefined
+                ? `${quality.moisture}%`
+                : "-",
+
+            grade:
+              quality?.quality ||
+              quality?.grade ||
+              "-",
+
+            status,
+
+            date: formatDate(
+              procurement.created_at ||
+                procurement.updated_at ||
+                booking?.booking_date
+            ),
+
+            paymentStatus:
+              payment?.status || null,
+
+            paymentTransaction:
+              payment?.transaction_id || null,
+
+            remarks:
+              quality?.remarks || "",
+
+            rawProcurement: procurement,
+            rawBooking: booking,
+            rawFarmer: farmer,
+            rawCentre: centre,
+            rawCrop: crop,
+            rawWeighment: weighment,
+            rawQuality: quality,
+            rawPayment: payment,
+          };
+        }
+      );
+
+      setRecords(formattedRecords);
+    } catch (err) {
+      console.error(
+        "Admin procurement error:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Failed to load procurement data."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // INITIAL LOAD
+  // --------------------------------------------------
+
+  useEffect(() => {
+    fetchProcurements();
+  }, []);
+
+  // --------------------------------------------------
+  // FILTER
+  // --------------------------------------------------
 
   const filteredRecords = useMemo(() => {
+    const query = search
+      .toLowerCase()
+      .trim();
+
     return records.filter((record) => {
       const matchesTab =
-        activeTab === "All" || record.status === activeTab;
-
-      const query = search.toLowerCase();
+        activeTab === "All" ||
+        record.status === activeTab;
 
       const matchesSearch =
-        record.id.toLowerCase().includes(query) ||
-        record.bookingId.toLowerCase().includes(query) ||
-        record.farmer.toLowerCase().includes(query) ||
-        record.farmerId.toLowerCase().includes(query) ||
-        record.centre.toLowerCase().includes(query) ||
-        record.crop.toLowerCase().includes(query);
+        !query ||
+        record.id
+          .toLowerCase()
+          .includes(query) ||
+        record.bookingId
+          .toLowerCase()
+          .includes(query) ||
+        record.farmer
+          .toLowerCase()
+          .includes(query) ||
+        record.farmerId
+          .toLowerCase()
+          .includes(query) ||
+        record.centre
+          .toLowerCase()
+          .includes(query) ||
+        record.crop
+          .toLowerCase()
+          .includes(query);
 
       return matchesTab && matchesSearch;
     });
   }, [records, activeTab, search]);
+
+  // --------------------------------------------------
+  // STATS
+  // --------------------------------------------------
 
   const completed = records.filter(
     (record) => record.status === "Completed"
@@ -155,49 +509,132 @@ function AdminProcurement() {
   ).length;
 
   const paymentPending = records.filter(
-    (record) => record.status === "Payment Pending"
+    (record) =>
+      record.status === "Payment Pending"
+  ).length;
+
+  const cancelled = records.filter(
+    (record) => record.status === "Cancelled"
   ).length;
 
   const totalQuantity = records.reduce(
-    (sum, record) => sum + record.actualQuantity,
+    (sum, record) =>
+      sum + Number(record.actualQuantity || 0),
     0
   );
 
-  const statusClasses = {
-    "Quality Check": "bg-blue-50 text-blue-700",
-    Weighing: "bg-amber-50 text-amber-700",
-    Completed: "bg-green-50 text-green-700",
-    "Payment Pending": "bg-purple-50 text-purple-700",
-    Cancelled: "bg-red-50 text-red-700",
+  const totalValue = records.reduce(
+    (sum, record) =>
+      sum + Number(record.amount || 0),
+    0
+  );
+
+  // --------------------------------------------------
+  // MARK COMPLETED
+  // --------------------------------------------------
+
+  const markCompleted = async (record) => {
+    try {
+      if (!record.rawId) return;
+
+      const { error } = await supabase
+        .from("procurements")
+        .update({
+          status: "completed",
+        })
+        .eq("id", record.rawId);
+
+      if (error) {
+        throw error;
+      }
+
+      setRecords((current) =>
+        current.map((item) =>
+          item.rawId === record.rawId
+            ? {
+                ...item,
+                status: "Completed",
+              }
+            : item
+        )
+      );
+
+      setSelectedRecord((current) =>
+        current
+          ? {
+              ...current,
+              status: "Completed",
+            }
+          : null
+      );
+    } catch (err) {
+      console.error(
+        "Complete procurement error:",
+        err
+      );
+
+      alert(
+        err?.message ||
+          "Unable to update procurement."
+      );
+    }
   };
 
-  const statusIcon = {
-    "Quality Check": <Clock3 className="h-3.5 w-3.5" />,
-    Weighing: <Scale className="h-3.5 w-3.5" />,
-    Completed: <CheckCircle2 className="h-3.5 w-3.5" />,
-    "Payment Pending": <PackageCheck className="h-3.5 w-3.5" />,
-    Cancelled: <XCircle className="h-3.5 w-3.5" />,
-  };
+  // --------------------------------------------------
+  // LOADING
+  // --------------------------------------------------
 
-  const markCompleted = (id) => {
-    setRecords((current) =>
-      current.map((record) =>
-        record.id === id
-          ? { ...record, status: "Completed" }
-          : record
-      )
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-green-700" />
+
+          <p className="mt-4 text-sm font-semibold text-slate-600">
+            Loading procurement data...
+          </p>
+        </div>
+      </div>
     );
+  }
 
-    setSelectedRecord((current) =>
-      current
-        ? { ...current, status: "Completed" }
-        : current
+  // --------------------------------------------------
+  // ERROR
+  // --------------------------------------------------
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+          <div className="flex gap-3">
+            <XCircle className="h-5 w-5 shrink-0 text-red-600" />
+
+            <div>
+              <p className="text-sm font-bold text-red-800">
+                Procurement Error
+              </p>
+
+              <p className="mt-1 text-xs text-red-700">
+                {error}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={fetchProcurements}
+          className="rounded-lg bg-green-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-800"
+        >
+          Try Again
+        </button>
+      </div>
     );
-  };
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-semibold text-green-700">
@@ -209,18 +646,23 @@ function AdminProcurement() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Monitor farmer procurement, quality checks, weighing and payments.
+            Monitor farmer procurement, quality checks,
+            weighing and payments across all centres.
           </p>
         </div>
 
         <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-sm">
           <Filter className="h-4 w-4 text-green-700" />
-          06 September 2026
+
+          {records.length} Records
         </div>
       </div>
 
       {/* Stats */}
+
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {/* Total */}
+
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500">
@@ -237,9 +679,11 @@ function AdminProcurement() {
           </p>
 
           <p className="mt-1 text-xs text-slate-400">
-            Today's records
+            Total records
           </p>
         </div>
+
+        {/* Completed */}
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
@@ -261,6 +705,8 @@ function AdminProcurement() {
           </p>
         </div>
 
+        {/* In Progress */}
+
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500">
@@ -280,6 +726,8 @@ function AdminProcurement() {
             Quality & weighing
           </p>
         </div>
+
+        {/* Quantity */}
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
@@ -302,31 +750,61 @@ function AdminProcurement() {
         </div>
       </div>
 
-      {/* Payment pending alert */}
-      <div className="flex flex-col gap-3 rounded-xl border border-purple-100 bg-purple-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-3">
-          <PackageCheck className="mt-0.5 h-5 w-5 shrink-0 text-purple-700" />
+      {/* Total value */}
 
+      <div className="rounded-xl border border-green-100 bg-green-50 p-4">
+        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
-            <p className="text-sm font-bold text-purple-900">
-              Payment Pending
+            <p className="text-sm font-bold text-green-900">
+              Total Procurement Value
             </p>
 
-            <p className="mt-1 text-xs text-purple-800">
-              {paymentPending} procurement record is waiting for payment processing.
+            <p className="mt-1 text-xs text-green-800">
+              Calculated from procurement/payment records
             </p>
           </div>
-        </div>
 
-        <button
-          onClick={() => setActiveTab("Payment Pending")}
-          className="rounded-lg bg-purple-700 px-4 py-2 text-xs font-bold text-white hover:bg-purple-800"
-        >
-          View Pending
-        </button>
+          <p className="text-xl font-extrabold text-green-800">
+            {formatCurrency(totalValue)}
+          </p>
+        </div>
       </div>
 
+      {/* Payment pending */}
+
+      {paymentPending > 0 && (
+        <div className="flex flex-col gap-3 rounded-xl border border-purple-100 bg-purple-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-3">
+            <PackageCheck className="mt-0.5 h-5 w-5 shrink-0 text-purple-700" />
+
+            <div>
+              <p className="text-sm font-bold text-purple-900">
+                Payment Pending
+              </p>
+
+              <p className="mt-1 text-xs text-purple-800">
+                {paymentPending} procurement{" "}
+                {paymentPending === 1
+                  ? "record is"
+                  : "records are"}{" "}
+                waiting for payment processing.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() =>
+              setActiveTab("Payment Pending")
+            }
+            className="rounded-lg bg-purple-700 px-4 py-2 text-xs font-bold text-white hover:bg-purple-800"
+          >
+            View Pending
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
+
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4">
           <div className="flex gap-2 overflow-x-auto pb-1">
@@ -351,7 +829,9 @@ function AdminProcurement() {
             <input
               type="text"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
               placeholder="Search farmer, centre or procurement ID..."
               className="h-10 w-full rounded-lg border border-slate-300 pl-9 pr-3 text-sm outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
             />
@@ -360,6 +840,7 @@ function AdminProcurement() {
       </div>
 
       {/* Desktop Table */}
+
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px]">
@@ -402,7 +883,7 @@ function AdminProcurement() {
             <tbody>
               {filteredRecords.map((record) => (
                 <tr
-                  key={record.id}
+                  key={record.rawId}
                   className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
                 >
                   <td className="px-5 py-4">
@@ -420,7 +901,7 @@ function AdminProcurement() {
                       {record.farmer}
                     </p>
 
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 max-w-[160px] truncate text-xs text-slate-500">
                       {record.farmerId}
                     </p>
                   </td>
@@ -434,6 +915,7 @@ function AdminProcurement() {
                   <td className="px-5 py-4">
                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">
                       <Wheat className="h-3.5 w-3.5" />
+
                       {record.crop}
                     </span>
                   </td>
@@ -452,7 +934,9 @@ function AdminProcurement() {
 
                   <td className="px-5 py-4">
                     <p className="text-sm font-semibold text-slate-800">
-                      Grade {record.grade}
+                      {record.grade !== "-"
+                        ? `Grade ${record.grade}`
+                        : "-"}
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
@@ -465,16 +949,20 @@ function AdminProcurement() {
                       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold ${statusClasses[record.status]}`}
                     >
                       {statusIcon[record.status]}
+
                       {record.status}
                     </span>
                   </td>
 
                   <td className="px-5 py-4 text-right">
                     <button
-                      onClick={() => setSelectedRecord(record)}
+                      onClick={() =>
+                        setSelectedRecord(record)
+                      }
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
                     >
                       <Eye className="h-3.5 w-3.5" />
+
                       View
                     </button>
                   </td>
@@ -491,15 +979,20 @@ function AdminProcurement() {
             <p className="mt-3 text-sm font-bold text-slate-600">
               No procurement records found
             </p>
+
+            <p className="mt-1 text-xs text-slate-400">
+              Try changing your search or status filter.
+            </p>
           </div>
         )}
       </div>
 
-      {/* Mobile Cards */}
+      {/* Mobile */}
+
       <div className="space-y-4 lg:hidden">
         {filteredRecords.map((record) => (
           <div
-            key={record.id}
+            key={record.rawId}
             className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
           >
             <div className="flex items-start justify-between gap-3">
@@ -517,6 +1010,7 @@ function AdminProcurement() {
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${statusClasses[record.status]}`}
               >
                 {statusIcon[record.status]}
+
                 {record.status}
               </span>
             </div>
@@ -565,7 +1059,7 @@ function AdminProcurement() {
                   <p className="mt-1 text-xs font-bold text-slate-800">
                     {record.actualQuantity > 0
                       ? `${record.actualQuantity} Qtl`
-                      : "-"}
+                      : `${record.bookedQuantity} Qtl`}
                   </p>
                 </div>
               </div>
@@ -591,13 +1085,26 @@ function AdminProcurement() {
                   </p>
                 </div>
               </div>
+
+              <div className="rounded-lg bg-green-50 p-3">
+                <p className="text-[10px] font-semibold text-green-600">
+                  Procurement Value
+                </p>
+
+                <p className="mt-1 text-sm font-extrabold text-green-800">
+                  {formatCurrency(record.amount)}
+                </p>
+              </div>
             </div>
 
             <button
-              onClick={() => setSelectedRecord(record)}
+              onClick={() =>
+                setSelectedRecord(record)
+              }
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-50"
             >
               <Eye className="h-4 w-4" />
+
               View Procurement Details
             </button>
           </div>
@@ -615,6 +1122,7 @@ function AdminProcurement() {
       </div>
 
       {/* Info */}
+
       <div className="rounded-xl border border-green-100 bg-green-50 p-4">
         <div className="flex gap-3">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-700" />
@@ -625,17 +1133,22 @@ function AdminProcurement() {
             </p>
 
             <p className="mt-1 text-xs leading-5 text-green-800">
-              Track quality checks, actual weights, procurement values,
-              payment status and completion progress across all centres.
+              Admin can monitor procurement progress,
+              actual weight, quality, payment and
+              completion status across all procurement
+              centres.
             </p>
           </div>
         </div>
       </div>
 
       {/* Details Modal */}
+
       {selectedRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            {/* Modal Header */}
+
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <h2 className="text-lg font-extrabold text-blue-950">
@@ -648,7 +1161,9 @@ function AdminProcurement() {
               </div>
 
               <button
-                onClick={() => setSelectedRecord(null)}
+                onClick={() =>
+                  setSelectedRecord(null)
+                }
                 className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <XCircle className="h-5 w-5" />
@@ -657,6 +1172,7 @@ function AdminProcurement() {
 
             <div className="space-y-5 p-5">
               {/* Status */}
+
               <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4">
                 <div>
                   <p className="text-[11px] font-semibold text-slate-400">
@@ -667,6 +1183,7 @@ function AdminProcurement() {
                     className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${statusClasses[selectedRecord.status]}`}
                   >
                     {statusIcon[selectedRecord.status]}
+
                     {selectedRecord.status}
                   </span>
                 </div>
@@ -683,6 +1200,7 @@ function AdminProcurement() {
               </div>
 
               {/* Farmer */}
+
               <div>
                 <p className="text-xs font-bold text-blue-950">
                   Farmer Information
@@ -704,7 +1222,7 @@ function AdminProcurement() {
                       Farmer ID
                     </p>
 
-                    <p className="mt-1 text-sm font-bold text-slate-800">
+                    <p className="mt-1 break-all text-sm font-bold text-slate-800">
                       {selectedRecord.farmerId}
                     </p>
                   </div>
@@ -712,6 +1230,7 @@ function AdminProcurement() {
               </div>
 
               {/* Procurement */}
+
               <div>
                 <p className="text-xs font-bold text-blue-950">
                   Procurement Information
@@ -776,13 +1295,18 @@ function AdminProcurement() {
                     </p>
 
                     <p className="mt-1 text-sm font-bold text-slate-800">
-                      ₹{selectedRecord.rate.toLocaleString()} / Qtl
+                      {selectedRecord.rate > 0
+                        ? `₹${selectedRecord.rate.toLocaleString(
+                            "en-IN"
+                          )} / Qtl`
+                        : "-"}
                     </p>
                   </div>
                 </div>
               </div>
 
               {/* Quality */}
+
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                 <p className="text-xs font-bold text-blue-900">
                   Quality Check
@@ -805,42 +1329,92 @@ function AdminProcurement() {
                     </p>
 
                     <p className="mt-1 text-sm font-bold text-blue-950">
-                      Grade {selectedRecord.grade}
+                      {selectedRecord.grade !== "-"
+                        ? `Grade ${selectedRecord.grade}`
+                        : "-"}
                     </p>
                   </div>
                 </div>
+
+                {selectedRecord.remarks && (
+                  <div className="mt-3 border-t border-blue-100 pt-3">
+                    <p className="text-[10px] text-blue-600">
+                      Remarks
+                    </p>
+
+                    <p className="mt-1 text-xs font-semibold text-blue-900">
+                      {selectedRecord.remarks}
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Amount */}
-              <div className="flex items-center justify-between rounded-xl bg-green-50 p-4">
-                <div>
-                  <p className="text-xs font-semibold text-green-700">
-                    Procurement Value
-                  </p>
+              {/* Payment */}
 
-                  <p className="mt-1 text-xs text-green-800">
-                    Based on actual quantity
+              <div className="rounded-xl bg-green-50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold text-green-700">
+                      Procurement Value
+                    </p>
+
+                    <p className="mt-1 text-xs text-green-800">
+                      Based on actual quantity and rate
+                    </p>
+                  </div>
+
+                  <p className="text-xl font-extrabold text-green-800">
+                    {formatCurrency(
+                      selectedRecord.amount
+                    )}
                   </p>
                 </div>
 
-                <p className="text-xl font-extrabold text-green-800">
-                  {selectedRecord.amount}
-                </p>
+                {selectedRecord.paymentStatus && (
+                  <div className="mt-3 border-t border-green-100 pt-3">
+                    <p className="text-[10px] text-green-600">
+                      Payment Status
+                    </p>
+
+                    <p className="mt-1 text-xs font-bold text-green-900">
+                      {selectedRecord.paymentStatus}
+                    </p>
+                  </div>
+                )}
+
+                {selectedRecord.paymentTransaction && (
+                  <div className="mt-2">
+                    <p className="text-[10px] text-green-600">
+                      Transaction ID
+                    </p>
+
+                    <p className="mt-1 break-all text-xs font-bold text-green-900">
+                      {selectedRecord.paymentTransaction}
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {/* Complete */}
 
               {selectedRecord.status !== "Completed" &&
                 selectedRecord.status !== "Cancelled" && (
                   <button
-                    onClick={() => markCompleted(selectedRecord.id)}
+                    onClick={() =>
+                      markCompleted(selectedRecord)
+                    }
                     className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-700 py-2.5 text-xs font-bold text-white hover:bg-green-800"
                   >
                     <CheckCircle2 className="h-4 w-4" />
+
                     Mark Procurement Completed
                   </button>
                 )}
 
               <button
-                onClick={() => setSelectedRecord(null)}
+                onClick={() =>
+                  setSelectedRecord(null)
+                }
                 className="w-full rounded-lg bg-slate-100 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-200"
               >
                 Close

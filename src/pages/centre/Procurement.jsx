@@ -71,26 +71,26 @@ function getIndiaDayUtcRange() {
 // STEP
 // =========================================================
 
-function getStepFromProcurement(
-  status,
-  payment
-) {
-  switch (status) {
+function getStepFromProcurement(status, payment) {
+  const normalizedStatus = status?.toLowerCase();
+
+  switch (normalizedStatus) {
     case "processing":
+    case "weighing":
       return "weighing";
 
     case "quality_check":
+    case "quality":
       return "quality";
 
     case "accepted":
+    case "payment":
       return payment?.status === "successful"
         ? "complete"
         : "payment";
 
-    case "rejected":
-      return "complete";
-
     case "completed":
+    case "rejected":
       return "complete";
 
     default:
@@ -145,6 +145,44 @@ function Procurement() {
 
   const [todayBookings, setTodayBookings] =
     useState([]);
+
+  // =========================================================
+  // STEP ACCESS
+  // =========================================================
+
+  const getCurrentStepIndex = () => {
+    if (!selectedFarmer) return 0;
+
+    const status = selectedFarmer.status?.toLowerCase();
+
+    if (status === "processing" || status === "weighing") {
+      return 0;
+    }
+
+    if (status === "quality_check" || status === "quality") {
+      return 1;
+    }
+
+    if (status === "accepted" || status === "payment") {
+      return payment?.status === "successful" ? 3 : 2;
+    }
+
+    if (status === "completed" || status === "rejected") {
+      return 3;
+    }
+
+    return 0;
+  };
+
+  const canOpenStep = (stepId) => {
+    if (!selectedFarmer) return false;
+
+    const stepIndex = steps.findIndex(
+      (step) => step.id === stepId
+    );
+
+    return stepIndex <= getCurrentStepIndex();
+  };
 
   // =========================================================
   // FETCH PROCUREMENT DATA
@@ -677,8 +715,8 @@ function Procurement() {
         selected =
           enriched.find(
             (item) =>
-              item.status ===
-              "processing"
+              item.status === "processing" ||
+              item.status === "weighing"
           ) ||
           enriched.find(
             (item) =>
@@ -933,10 +971,11 @@ function Procurement() {
         return;
       }
 
-      if (
-        selectedFarmer.status !==
-        "processing"
-      ) {
+      const weighingStage =
+        selectedFarmer.status === "processing" ||
+        selectedFarmer.status === "weighing";
+
+      if (!weighingStage) {
         setError(
           `Weighment is not available. Current procurement stage: ${selectedFarmer.status}.`
         );
@@ -1030,10 +1069,11 @@ function Procurement() {
         return;
       }
 
-      if (
-        selectedFarmer.status !==
-        "quality_check"
-      ) {
+      const qualityStage =
+        selectedFarmer.status === "quality_check" ||
+        selectedFarmer.status === "quality";
+
+      if (!qualityStage) {
         setError(
           `Quality check is not available. Current procurement stage: ${selectedFarmer.status}.`
         );
@@ -1742,82 +1782,73 @@ function Procurement() {
 
                 <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
 
-                  {steps.map(
-                    (step, index) => {
+                  {steps.map((step, index) => {
+                    const currentIndex = getCurrentStepIndex();
+                    const isActive = activeStep === step.id;
+                    const isDone = index < currentIndex;
+                    const isAccessible = canOpenStep(step.id);
 
-                      const stepIndex =
-                        steps.findIndex(
-                          (item) =>
-                            item.id ===
-                            activeStep
-                        );
-
-                      const isActive =
-                        activeStep ===
-                        step.id;
-
-                      const isDone =
-                        index <
-                        stepIndex;
-
-                      return (
-                        <div
-                          key={
-                            step.id
-                          }
-                          className="relative"
-                        >
-
+                    return (
+                      <button
+                        key={step.id}
+                        type="button"
+                        disabled={!isAccessible}
+                        onClick={() => {
+                          if (!isAccessible) return;
+                          setActiveStep(step.id);
+                          setError("");
+                          setMessage("");
+                        }}
+                        className={`relative rounded-lg border p-3 text-left transition ${
+                          isActive
+                            ? "border-green-300 bg-green-50 shadow-sm"
+                            : isDone
+                            ? "border-green-200 bg-green-50/50 hover:border-green-300"
+                            : "border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed"
+                        } ${
+                          isAccessible && !isActive
+                            ? "cursor-pointer hover:bg-green-50"
+                            : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
                           <div
-                            className={`rounded-lg border p-3 ${
-                              isActive
-                                ? "border-green-300 bg-green-50"
-                                : isDone
-                                ? "border-green-200 bg-green-50/50"
-                                : "border-slate-100 bg-slate-50"
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-extrabold ${
+                              isActive || isDone
+                                ? "bg-green-700 text-white"
+                                : "bg-slate-200 text-slate-500"
                             }`}
                           >
-
-                            <div className="flex items-center gap-2">
-
-                              <div
-                                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-extrabold ${
-                                  isActive ||
-                                  isDone
-                                    ? "bg-green-700 text-white"
-                                    : "bg-slate-200 text-slate-500"
-                                }`}
-                              >
-
-                                {isDone ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                  index + 1
-                                )}
-
-                              </div>
-
-                              <p
-                                className={`text-[8px] font-bold ${
-                                  isActive ||
-                                  isDone
-                                    ? "text-green-700"
-                                    : "text-slate-500"
-                                }`}
-                              >
-                                {
-                                  step.title
-                                }
-                              </p>
-
-                            </div>
-
+                            {isDone ? (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            ) : (
+                              index + 1
+                            )}
                           </div>
 
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[8px] font-bold ${
+                                isActive || isDone
+                                  ? "text-green-700"
+                                  : "text-slate-500"
+                              }`}
+                            >
+                              {step.title}
+                            </p>
+
+                            <p className="mt-0.5 text-[7px] text-slate-400">
+                              {step.description}
+                            </p>
+                          </div>
                         </div>
-                      );
-                    }
-                  )}
+
+                        {isActive && (
+                          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-green-600" />
+                        )}
+                      </button>
+                    );
+                  })}
 
                 </div>
 
@@ -2554,6 +2585,9 @@ function StatusBadge({
     processing:
       "bg-blue-50 text-blue-700",
 
+    weighing:
+      "bg-blue-50 text-blue-700",
+
     quality_check:
       "bg-yellow-50 text-yellow-700",
 
@@ -2580,6 +2614,9 @@ function StatusBadge({
     normalized ===
     "processing"
       ? "Processing"
+      : normalized ===
+        "weighing"
+      ? "Weighing"
       : normalized ===
         "quality_check"
       ? "Quality Check"
