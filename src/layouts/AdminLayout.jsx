@@ -1,6 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
-  BarChart3,
   Bell,
   Building2,
   CalendarDays,
@@ -15,7 +14,9 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { supabase } from "../lib/supabase";
 
 const menuItems = [
   {
@@ -49,11 +50,6 @@ const menuItems = [
     icon: CreditCard,
   },
   {
-    label: "Reports & Analytics",
-    path: "/admin/reports",
-    icon: BarChart3,
-  },
-  {
     label: "Admin Profile",
     path: "/admin/profile",
     icon: Settings,
@@ -62,19 +58,107 @@ const menuItems = [
 
 function AdminLayout({ children }) {
   const navigate = useNavigate();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const handleLogout = () => {
-    localStorage.removeItem("adminLoggedIn");
-    localStorage.removeItem("userRole");
-    navigate("/admin/login");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [adminName, setAdminName] = useState("Admin");
+  const [loadingAdmin, setLoadingAdmin] = useState(true);
+
+  // -----------------------------------------
+  // Load logged-in admin
+  // -----------------------------------------
+  useEffect(() => {
+    const loadAdminProfile = async () => {
+      try {
+        setLoadingAdmin(true);
+
+        // Get logged-in Supabase user
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError) {
+          console.error("Auth error:", authError);
+          return;
+        }
+
+        if (!user) {
+          navigate("/admin/login");
+          return;
+        }
+
+        // Get admin profile
+        const { data: profile, error: profileError } =
+          await supabase
+            .from("profiles")
+            .select("full_name, role")
+            .eq("id", user.id)
+            .single();
+
+        if (profileError) {
+          console.error("Profile error:", profileError);
+          return;
+        }
+
+        // Security check
+        if (profile?.role !== "admin") {
+          console.error("This account is not an admin.");
+          await supabase.auth.signOut();
+          navigate("/admin/login");
+          return;
+        }
+
+        setAdminName(profile.full_name || "Admin");
+      } catch (error) {
+        console.error("Failed to load admin:", error);
+      } finally {
+        setLoadingAdmin(false);
+      }
+    };
+
+    loadAdminProfile();
+  }, [navigate]);
+
+  // -----------------------------------------
+  // Generate initials
+  // -----------------------------------------
+  const getInitials = (name) => {
+    if (!name || name === "Admin") {
+      return "A";
+    }
+
+    return name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase();
   };
+
+  // -----------------------------------------
+  // Logout
+  // -----------------------------------------
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+
+      setMobileMenuOpen(false);
+      navigate("/admin/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  const displayName = loadingAdmin ? "..." : adminName;
+  const initials = loadingAdmin ? "..." : getInitials(adminName);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* Header */}
       <header className="fixed left-0 right-0 top-0 z-50 h-16 border-b border-slate-200 bg-white">
         <div className="flex h-full items-center justify-between px-4 sm:px-6 lg:px-7">
+
           {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-700 text-white">
@@ -94,6 +178,8 @@ function AdminLayout({ children }) {
 
           {/* Right */}
           <div className="flex items-center gap-3">
+
+            {/* Notifications */}
             <button
               type="button"
               className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100"
@@ -106,14 +192,15 @@ function AdminLayout({ children }) {
 
             <div className="hidden h-8 w-px bg-slate-200 sm:block" />
 
+            {/* Dynamic Admin */}
             <div className="hidden items-center gap-2 sm:flex">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-sm font-extrabold text-green-700">
-                A
+                {initials}
               </div>
 
               <div>
                 <p className="text-xs font-bold text-blue-950">
-                  Admin
+                  {displayName}
                 </p>
 
                 <p className="text-[10px] text-slate-500">
@@ -138,6 +225,7 @@ function AdminLayout({ children }) {
       {/* Desktop Sidebar */}
       <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 border-r border-slate-200 bg-white lg:block">
         <div className="flex h-full flex-col">
+
           {/* Navigation */}
           <nav className="flex-1 space-y-1 overflow-y-auto p-4">
             <p className="mb-3 px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
@@ -160,6 +248,7 @@ function AdminLayout({ children }) {
                   }
                 >
                   <Icon className="h-[18px] w-[18px] shrink-0" />
+
                   <span>{item.label}</span>
                 </NavLink>
               );
@@ -168,6 +257,7 @@ function AdminLayout({ children }) {
 
           {/* Bottom */}
           <div className="border-t border-slate-100 p-4">
+
             <div className="mb-3 rounded-lg bg-green-50 p-3">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-green-700" />
@@ -182,12 +272,14 @@ function AdminLayout({ children }) {
               </p>
             </div>
 
+            {/* Logout */}
             <button
               type="button"
               onClick={handleLogout}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
               <LogOut className="h-[18px] w-[18px]" />
+
               Logout
             </button>
           </div>
@@ -197,6 +289,7 @@ function AdminLayout({ children }) {
       {/* Mobile Sidebar */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-[60] lg:hidden">
+
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
@@ -205,6 +298,8 @@ function AdminLayout({ children }) {
           />
 
           <aside className="relative flex h-full w-[280px] flex-col bg-white shadow-xl">
+
+            {/* Mobile Header */}
             <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
               <div>
                 <p className="text-sm font-extrabold text-blue-950">
@@ -226,6 +321,7 @@ function AdminLayout({ children }) {
               </button>
             </div>
 
+            {/* Mobile Navigation */}
             <nav className="flex-1 space-y-1 overflow-y-auto p-4">
               <p className="mb-3 px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                 Main Menu
@@ -248,12 +344,14 @@ function AdminLayout({ children }) {
                     }
                   >
                     <Icon className="h-[18px] w-[18px]" />
+
                     {item.label}
                   </NavLink>
                 );
               })}
             </nav>
 
+            {/* Mobile Logout */}
             <div className="border-t border-slate-100 p-4">
               <button
                 type="button"
@@ -261,6 +359,7 @@ function AdminLayout({ children }) {
                 className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
               >
                 <LogOut className="h-[18px] w-[18px]" />
+
                 Logout
               </button>
             </div>
@@ -294,6 +393,7 @@ function AdminLayout({ children }) {
                 }
               >
                 <Icon className="h-[18px] w-[18px]" />
+
                 {item.label}
               </NavLink>
             );

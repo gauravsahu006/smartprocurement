@@ -1,8 +1,8 @@
-import { NavLink, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Link, useNavigate } from "react-router-dom";
 import {
   Bell,
   CalendarDays,
-  ChartNoAxesCombined,
   ClipboardList,
   CreditCard,
   LayoutDashboard,
@@ -12,6 +12,8 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
+
+import { supabase } from "../lib/supabase";
 
 const menuItems = [
   {
@@ -52,11 +54,103 @@ const menuItems = [
 ];
 
 function FarmerLayout({ children }) {
+  const navigate = useNavigate();
+
+  const [farmerName, setFarmerName] = useState("Farmer");
+  const [loading, setLoading] = useState(true);
+
+  // -----------------------------------------
+  // Get logged-in farmer
+  // -----------------------------------------
+  useEffect(() => {
+    const loadFarmer = async () => {
+      try {
+        setLoading(true);
+
+        // Get current Supabase Auth user
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError) {
+          console.error("Auth error:", authError);
+          return;
+        }
+
+        if (!user) {
+          navigate("/login");
+          return;
+        }
+
+        // Get farmer profile
+        const { data: profile, error: profileError } =
+          await supabase
+            .from("profiles")
+            .select("full_name, role")
+            .eq("id", user.id)
+            .single();
+
+        if (profileError) {
+          console.error("Profile error:", profileError);
+          return;
+        }
+
+        // Make sure this is a farmer
+        if (profile?.role !== "farmer") {
+          console.error("This account is not a farmer.");
+          return;
+        }
+
+        setFarmerName(profile.full_name || "Farmer");
+      } catch (error) {
+        console.error("Failed to load farmer:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFarmer();
+  }, [navigate]);
+
+  // -----------------------------------------
+  // Generate initials
+  // -----------------------------------------
+  const getInitials = (name) => {
+    if (!name || name === "Farmer") {
+      return "F";
+    }
+
+    return name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase();
+  };
+
+  // -----------------------------------------
+  // Logout
+  // -----------------------------------------
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  const displayName = loading ? "..." : farmerName;
+  const initials = loading ? "..." : getInitials(farmerName);
+
   return (
     <div className="min-h-screen bg-[#f8faf9] text-slate-800">
       {/* Header */}
       <header className="fixed left-0 right-0 top-0 z-50 h-[60px] border-b border-slate-200 bg-white">
         <div className="flex h-full items-center justify-between px-4 lg:px-5">
+
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-50">
@@ -76,7 +170,12 @@ function FarmerLayout({ children }) {
 
           {/* Right */}
           <div className="flex items-center gap-4">
-            <button className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-50">
+
+            {/* Notification */}
+            <button
+              type="button"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-50"
+            >
               <Bell className="h-[18px] w-[18px] text-slate-600" />
 
               <span className="absolute right-1 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white">
@@ -86,14 +185,20 @@ function FarmerLayout({ children }) {
 
             <div className="hidden h-7 w-px bg-slate-200 sm:block" />
 
-            <div className="flex items-center gap-2">
+            {/* Farmer Profile */}
+            <Link
+              to="/profile"
+              className="flex items-center gap-2"
+            >
+              {/* Dynamic Initials */}
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-[10px] font-extrabold text-green-800">
-                RK
+                {initials}
               </div>
 
               <div className="hidden leading-tight sm:block">
+                {/* Dynamic Farmer Name */}
                 <p className="text-[11px] font-bold text-slate-800">
-                  Rajesh Kumar
+                  {displayName}
                 </p>
 
                 <p className="text-[9px] text-slate-500">
@@ -104,7 +209,7 @@ function FarmerLayout({ children }) {
               <span className="hidden text-xs text-slate-500 sm:block">
                 ▼
               </span>
-            </div>
+            </Link>
           </div>
         </div>
       </header>
@@ -112,6 +217,7 @@ function FarmerLayout({ children }) {
       {/* Sidebar */}
       <aside className="fixed bottom-0 left-0 top-[60px] z-40 hidden w-[118px] border-r border-slate-200 bg-white lg:block">
         <nav className="flex h-full flex-col px-2 py-3">
+
           <div className="space-y-1">
             {menuItems.map((item) => {
               const Icon = item.icon;
@@ -138,17 +244,19 @@ function FarmerLayout({ children }) {
             })}
           </div>
 
+          {/* Logout */}
           <div className="mt-auto">
-            <Link
-              to="/login"
-              className="flex min-h-[35px] flex-col items-center justify-center gap-1 rounded-md px-1 text-slate-600 hover:bg-red-50 hover:text-red-600"
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex min-h-[35px] w-full flex-col items-center justify-center gap-1 rounded-md px-1 text-slate-600 hover:bg-red-50 hover:text-red-600"
             >
               <LogOut className="h-[15px] w-[15px]" />
 
               <span className="text-[8px] font-semibold">
                 Logout
               </span>
-            </Link>
+            </button>
           </div>
         </nav>
       </aside>
@@ -165,7 +273,9 @@ function FarmerLayout({ children }) {
                 to={item.path}
                 className={({ isActive }) =>
                   `flex min-w-0 flex-1 flex-col items-center gap-1 ${
-                    isActive ? "text-green-700" : "text-slate-500"
+                    isActive
+                      ? "text-green-700"
+                      : "text-slate-500"
                   }`
                 }
               >
